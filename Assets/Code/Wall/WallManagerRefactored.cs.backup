@@ -1,0 +1,747 @@
+using UnityEngine;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+namespace WallChess
+{
+    public class WallManager : MonoBehaviour
+    {
+        #region Types
+        public enum Orientation { Horizontal, Vertical }
+
+        public readonly struct WallInfo
+        {
+            public readonly Orientation orientation;
+            public readonly int x;        // grid index
+            public readonly int y;        // grid index
+            public readonly Vector3 position;
+            public readonly Vector3 scale;
+
+            public WallInfo(Orientation o, int x, int y, Vector3 pos, Vector3 scale)
+            {
+                this.orientation = o;
+                this.x = x;
+                this.y = y;
+                this.position = pos;
+                this.scale = scale;
+            }
+            
+            public string GetGapKey()
+            {
+                return $"{(orientation == Orientation.Horizontal ? "H" : "V")}_{x}_{y}";
+            }
+        }
+        #endregion
+
+        #region Inspector Settings
+        [Header("Wall Visual Settings")]
+        [SerializeField] private Material wallMaterial;
+        [SerializeField] private GameObject wallPrefab;
+        
+        [Header("Gap Detection Settings")]
+        [Tooltip("Safe margin around gaps to stabilize orientation")]
+        public float gapSnapMargin = 0.25f;
+
+        [Header("Lane Detection (Safe Margins)")]
+        [Tooltip("World-units half-width of snap stripes around horizontal (Y) and vertical (X) gap lanes.")]
+        public float laneSnapMargin = 0.3f;
+
+        [Tooltip("How much farther you must move out of the locked lane to unlock orientation (hysteresis).")]
+        public float unlockMultiplier = 1.5f;
+
+        [Header("Preview Settings")]
+        [SerializeField] private Color validPreviewColor = new Color(0, 1, 0, 0.7f);
+        [SerializeField] private Color invalidPreviewColor = new Color(1, 0, 0, 0.7f);
+        [SerializeField] private Color placingPreviewColor = new Color(1, 1, 0, 0.5f);
+        
+        [Header("Input & Camera")]
+        public LayerMask placementMask = ~0;        // optional; used by plane Raycast fallback
+        public float placementPlaneZ = 0f;          // Z of placement plane for ScreenPointToRay
+        #endregion
+
+        #region State
+        private WallChessGameManager gameManager;
+        private GridSystem gridSystem;
+        private GameObject wallPreview;
+        private Renderer wallPreviewRenderer;
+        private bool isPlacing = false;
+        private Orientation? orientationLock = null; // Hysteresis for lane detection
+        
+        // Track spawned walls efficiently
+        private readonly List<GameObject> managedWalls = new List<GameObject>(32);
+        
+        // Efficient gap tracking with boolean arrays (from ImprovedWallPlacer logic)
+        private bool[,] horizontalGaps; // [HCols, HRows] 
+        private bool[,] verticalGaps;   // [VCols, VRows]
+        
+        // Grid configuration
+        private int Cells => gameManager?.gridSize ?? 8;
+        private int HCols => Cells + 1;                     // horizontal gap columns (x)
+        private int HRows => Cells;                         // horizontal gap rows (y)
+        private int VCols => Cells;                         // vertical gap columns (x)  
+        private int VRows => Cells + 1;                     // vertical gap rows (y)
+        private float spacing => gameManager?.tileSize + gameManager?.tileGap ?? 1.2f;
+        
+        // Gap offsets (aligned with grid centers)
+        private float horizontalGapOffsetX = 0.5f;
+        private float horizontalGapOffsetY = 0.0f;   // horizontal gaps are between rows
+        private float verticalGapOffsetX = 0.0f;     // vertical gaps are between columns  
+        private float verticalGapOffsetY = 0.5f;
+        #endregion
+
+        #region Initialization
+        public void Initialize(WallChessGameManager gm)
+        {
+            gameManager = gm;
+            gridSystem = gm.GetGridSystem();
+            
+            // Initialize gap arrays
+            InitializeGapArrays();
+            
+            UnityEngine.Debug.Log("WallManager initialized with advanced grid system integration");
+        }
+        
+        private void InitializeGapArrays()
+        {
+            horizontalGaps = new bool[HCols, HRows];
+            verticalGaps = new bool[VCols, VRows];
+            ClearGapArrays();
+        }
+        
+        private void ClearGapArrays()
+        {
+            for (int i = 0; i < HCols; i++)
+                for (int j = 0; j < HRows; j++)
+                    horizontalGaps[i, j] = false;
+
+            for (int i = 0; i < VCols; i++)
+                for (int j = 0; j < VRows; j++)
+                    verticalGaps[i, j] = false;
+        }
+        #endregion
+        
+        #region Unity Lifecycle
+        void Update()
+        {
+            // Handle wall placement input
+            if (Input.GetMouseButtonDown(0) && CanPlaceWalls())
+            {
+                TryStartPlacing();
+            }
+            else if (Input.GetMouseButton(0) && isPlacing)
+            {
+                UpdatePreview();
+            }
+            else if (Input.GetMouseButtonUp(0) && isPlacing)
+            {
+                PlaceWall();
+            }
+        }
+        #endregion
+
+        #region Wall Placement Flow
+        void TryStartPlacing()
+        {
+            Vector3 mousePos = GetMouseWorld();
+            if (IsWithinGridBounds(mousePos))
+            {
+                isPlacing = true;
+                CreatePreview();
+            }
+        }
+
+        void CreatePreview()
+        {
+            if (wallPreview == null)
+            {
+                wallPreview = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                wallPreview.name = "WallPreview";
+                wallPreviewRenderer = wallPreview.GetComponent<Renderer>();
+                wallPreviewRenderer.material.color = placingPreviewColor;
+                var collider = wallPreview.GetComponent<Collider>();
+                SafeDestroy(collider);
+            }
+        }
+
+        void UpdatePreview()
+        {
+            if (wallPreview == null) return;
+
+            Vector3 mousePos = GetMouseWorld();
+            if (!IsWithinGridBounds(mousePos)) 
+            { 
+                wallPreview.SetActive(false); 
+                return; 
+            }
+
+            // Use advanced gap detection from ImprovedWallPlacer
+            bool hasCandidate = TryFindNearestGap(mousePos, out WallInfo info);
+            if (!hasCandidate)
+            {
+                wallPreview.SetActive(false);
+                return;
+            }
+
+            wallPreview.SetActive(true);
+            wallPreview.transform.position = info.position;
+            wallPreview.transform.localScale = info.scale;
+
+            // Tint based on validity
+            bool canPlace = CanPlaceWall(info);
+            wallPreviewRenderer.material.color = canPlace ? validPreviewColor : invalidPreviewColor;
+        }
+
+        void PlaceWall()
+        {
+            if (wallPreview != null && wallPreview.activeInHierarchy)
+            {
+                Vector3 mousePos = GetMouseWorld();
+                if (TryFindNearestGap(mousePos, out WallInfo info) && CanPlaceWall(info))
+                {
+                    // Create actual wall
+                    CreateWallVisual(info);
+                    
+                    // Mark gaps as occupied
+                    OccupyWallPositions(info);
+                    
+                    // Notify game manager
+                    OnWallPlaced(info);
+                    
+                    // Decrement wall count
+                    DecrementWallCount();
+                    
+                    UnityEngine.Debug.Log($"Wall placed at ({info.x},{info.y}) {info.orientation}! Player walls remaining: {GetCurrentPlayerWallCount()}");
+                }
+                
+                // Clean up preview
+                SafeDestroy(wallPreview);
+                wallPreview = null;
+                wallPreviewRenderer = null;
+            }
+            
+            orientationLock = null; // reset after placement attempt
+            isPlacing = false;
+        }
+        #endregion
+
+        #region Advanced Gap Detection (from ImprovedWallPlacer)
+        // Nearest "lane line" (world Y) for horizontal walls (rows)
+        float NearestHorizontalLaneY(float worldY)
+        {
+            float ky = Mathf.Round(worldY / spacing - horizontalGapOffsetY);
+            return (ky + horizontalGapOffsetY) * spacing;
+        }
+
+        // Nearest "lane line" (world X) for vertical walls (columns)
+        float NearestVerticalLaneX(float worldX)
+        {
+            float kx = Mathf.Round(worldX / spacing - verticalGapOffsetX);
+            return (kx + verticalGapOffsetX) * spacing;
+        }
+
+        // Advanced gap detection with lane-based orientation locking
+        bool TryFindNearestGap(in Vector3 mousePos, out WallInfo result)
+        {
+            // Lane distances (stripe logic)
+            float yLane = NearestHorizontalLaneY(mousePos.y);
+            float xLane = NearestVerticalLaneX(mousePos.x);
+            float dY = Mathf.Abs(mousePos.y - yLane);   // distance to horizontal lane
+            float dX = Mathf.Abs(mousePos.x - xLane);   // distance to vertical lane
+
+            bool inHStripe = dY <= laneSnapMargin;
+            bool inVStripe = dX <= laneSnapMargin;
+
+            // Hysteresis: if we're locked to an orientation, keep it until we leave a wider stripe
+            if (orientationLock.HasValue)
+            {
+                if (orientationLock.Value == Orientation.Horizontal)
+                {
+                    if (dY <= laneSnapMargin * unlockMultiplier)
+                    {
+                        inHStripe = true; inVStripe = false;
+                    }
+                    else orientationLock = null; // left the stripe -> unlock
+                }
+                else
+                {
+                    if (dX <= laneSnapMargin * unlockMultiplier)
+                    {
+                        inVStripe = true; inHStripe = false;
+                    }
+                    else orientationLock = null;
+                }
+            }
+            else
+            {
+                // If neither stripe is hit, allow both so we can still find a nearest center
+                if (!inHStripe && !inVStripe) { inHStripe = true; inVStripe = true; }
+            }
+
+            // Candidate computation using direct index math
+            int hx0, hy0, hx1, hy1; // horizontal candidates (floor & round)
+            int vx0, vy0, vx1, vy1; // vertical candidates (floor & round)
+            
+            MapToGapIndices(mousePos, Orientation.Horizontal, out hx0, out hy0, floor: true);
+            MapToGapIndices(mousePos, Orientation.Horizontal, out hx1, out hy1, floor: false);
+            MapToGapIndices(mousePos, Orientation.Vertical, out vx0, out vy0, floor: true);
+            MapToGapIndices(mousePos, Orientation.Vertical, out vx1, out vy1, floor: false);
+
+            bool hValid0 = ClampToGapRange(ref hx0, ref hy0, Orientation.Horizontal);
+            bool hValid1 = ClampToGapRange(ref hx1, ref hy1, Orientation.Horizontal);
+            bool vValid0 = ClampToGapRange(ref vx0, ref vy0, Orientation.Vertical);
+            bool vValid1 = ClampToGapRange(ref vx1, ref vy1, Orientation.Vertical);
+
+            float bestDistSq = float.PositiveInfinity;
+            bool found = false;
+            result = default;
+
+            // Gate evaluation by lane stripes
+            if (inHStripe)
+            {
+                EvaluateCandidate(Orientation.Horizontal, hx0, hy0, hValid0, mousePos, ref bestDistSq, ref found, ref result);
+                EvaluateCandidate(Orientation.Horizontal, hx1, hy1, hValid1, mousePos, ref bestDistSq, ref found, ref result);
+            }
+            if (inVStripe)
+            {
+                EvaluateCandidate(Orientation.Vertical, vx0, vy0, vValid0, mousePos, ref bestDistSq, ref found, ref result);
+                EvaluateCandidate(Orientation.Vertical, vx1, vy1, vValid1, mousePos, ref bestDistSq, ref found, ref result);
+            }
+
+            // Lock orientation if we picked within the narrow stripe (prevents flicker)
+            if (found)
+            {
+                if (result.orientation == Orientation.Horizontal && dY <= laneSnapMargin)
+                    orientationLock = Orientation.Horizontal;
+                else if (result.orientation == Orientation.Vertical && dX <= laneSnapMargin)
+                    orientationLock = Orientation.Vertical;
+            }
+
+            return found;
+        }
+
+        void EvaluateCandidate(Orientation o, int x, int y, bool valid, in Vector3 mousePos,
+                               ref float bestDistSq, ref bool found, ref WallInfo best)
+        {
+            if (!valid) return;
+
+            Vector3 center = GapCenter(o, x, y);
+            float d2 = (mousePos - center).sqrMagnitude;
+
+            // Apply margin: if within margin of current best, prefer to KEEP same orientation
+            if (found && Mathf.Abs(d2 - bestDistSq) < gapSnapMargin * gapSnapMargin)
+            {
+                // Don't switch orientation if both candidates are nearly tied
+                if (best.orientation == Orientation.Vertical && o == Orientation.Horizontal)
+                    return; // keep vertical
+            }
+
+            if (d2 < bestDistSq)
+            {
+                bestDistSq = d2;
+                best = CreateWallInfo(o, x, y, center);
+                found = true;
+            }
+        }
+
+        void MapToGapIndices(in Vector3 p, Orientation o, out int gx, out int gy, bool floor)
+        {
+            if (o == Orientation.Horizontal)
+            {
+                float fx = p.x / spacing - horizontalGapOffsetX;
+                float fy = p.y / spacing - horizontalGapOffsetY;
+                gx = floor ? Mathf.FloorToInt(fx) : Mathf.RoundToInt(fx);
+                gy = floor ? Mathf.FloorToInt(fy) : Mathf.RoundToInt(fy);
+            }
+            else
+            {
+                float fx = p.x / spacing - verticalGapOffsetX;
+                float fy = p.y / spacing - verticalGapOffsetY;
+                gx = floor ? Mathf.FloorToInt(fx) : Mathf.RoundToInt(fx);
+                gy = floor ? Mathf.FloorToInt(fy) : Mathf.RoundToInt(gy);
+            }
+        }
+
+        bool ClampToGapRange(ref int x, ref int y, Orientation o)
+        {
+            if (o == Orientation.Horizontal)
+            {
+                // For horizontal walls: x can be [0..Cells-1], y can be [0..Cells-1]
+                // But we need to check x+1 stays within HCols
+                x = Mathf.Clamp(x, 0, Cells - 1);
+                y = Mathf.Clamp(y, 0, Cells - 1);
+                return x + 1 < HCols && y >= 0 && y < HRows;
+            }
+            else
+            {
+                // For vertical walls: x can be [0..Cells-1], y can be [0..Cells-1] 
+                // But we need to check y+1 stays within VRows
+                x = Mathf.Clamp(x, 0, Cells - 1);
+                y = Mathf.Clamp(y, 0, Cells - 1);
+                return x >= 0 && x < VCols && y + 1 < VRows;
+            }
+        }
+
+        WallInfo CreateWallInfo(Orientation o, int x, int y, in Vector3 center)
+        {
+            Vector3 scale = (o == Orientation.Horizontal)
+                ? new Vector3(gameManager.tileSize * 2f + gameManager.tileGap, gameManager.wallThickness, gameManager.wallHeight)
+                : new Vector3(gameManager.wallThickness, gameManager.tileSize * 2f + gameManager.tileGap, gameManager.wallHeight);
+
+            return new WallInfo(o, x, y, new Vector3(center.x, center.y, -0.1f), scale);
+        }
+
+        Vector3 GapCenter(Orientation o, int x, int y)
+        {
+            if (o == Orientation.Horizontal)
+                return new Vector3((x + horizontalGapOffsetX) * spacing,
+                                   (y + horizontalGapOffsetY) * spacing,
+                                   0f);
+            else
+                return new Vector3((x + verticalGapOffsetX) * spacing,
+                                   (y + verticalGapOffsetY) * spacing,
+                                   0f);
+        }
+        #endregion
+
+        #region Wall Validation & Placement Logic  
+        bool CanPlaceWall(in WallInfo w)
+        {
+            // Check if current player has walls remaining
+            if (!CanPlaceWalls()) return false;
+            
+            // Bounds and occupancy checks
+            if (w.orientation == Orientation.Horizontal)
+            {
+                if (w.x < 0 || w.x + 1 >= HCols || w.y < 0 || w.y >= HRows) return false;
+                if (IsOccupied(Orientation.Horizontal, w.x, w.y)) return false;
+                if (IsOccupied(Orientation.Horizontal, w.x + 1, w.y)) return false;
+            }
+            else
+            {
+                if (w.x < 0 || w.x >= VCols || w.y < 0 || w.y + 1 >= VRows) return false;
+                if (IsOccupied(Orientation.Vertical, w.x, w.y)) return false;
+                if (IsOccupied(Orientation.Vertical, w.x, w.y + 1)) return false;
+            }
+
+            // Check crossing prevention
+            return !WouldCrossExistingWall(w) && !WouldBlockPlayerPaths(w);
+        }
+
+        // Efficient pair-aware crossing detection
+        bool WouldCrossExistingWall(in WallInfo newWall)
+        {
+            int x = newWall.x;
+            int y = newWall.y;
+
+            if (newWall.orientation == Orientation.Horizontal)
+            {
+                // crossing only if BOTH vertical halves at (x,y) and (x,y+1) are set
+                if (y + 1 >= VRows) return false; // bound-safe
+                return verticalGaps[x, y] && verticalGaps[x, y + 1];
+            }
+            else
+            {
+                // crossing only if BOTH horizontal halves at (x,y) and (x+1,y) are set
+                if (x + 1 >= HCols) return false; // bound-safe
+                return horizontalGaps[x, y] && horizontalGaps[x + 1, y];
+            }
+        }
+        
+        // Ensure players always have a path to their goal
+        bool WouldBlockPlayerPaths(in WallInfo wallInfo)
+        {
+            // TODO: Implement pathfinding check to ensure both players can still reach their goals
+            // For now, just return false to allow placement
+            return false;
+        }
+
+        void OccupyWallPositions(in WallInfo w)
+        {
+            if (w.orientation == Orientation.Horizontal)
+            {
+                System.Diagnostics.Debug.Assert(w.x + 1 < HCols && w.y < HRows, "Horizontal occupy out of range");
+                SetOccupied(Orientation.Horizontal, w.x, w.y, true);
+                SetOccupied(Orientation.Horizontal, w.x + 1, w.y, true);
+            }
+            else
+            {
+                System.Diagnostics.Debug.Assert(w.y + 1 < VRows && w.x < VCols, "Vertical occupy out of range");
+                SetOccupied(Orientation.Vertical, w.x, w.y, true);
+                SetOccupied(Orientation.Vertical, w.x, w.y + 1, true);
+            }
+        }
+        #endregion
+
+        #region Gap Management Helpers
+        bool IsOccupied(Orientation o, int x, int y)
+        {
+            return (o == Orientation.Horizontal) ? horizontalGaps[x, y] : verticalGaps[x, y];
+        }
+
+        void SetOccupied(Orientation o, int x, int y, bool value)
+        {
+            if (o == Orientation.Horizontal) horizontalGaps[x, y] = value;
+            else verticalGaps[x, y] = value;
+        }
+        
+        // Legacy compatibility for GridSystem integration
+        public bool IsGapOccupied(Orientation o, int x, int y)
+        {
+            return IsOccupied(o, x, y);
+        }
+
+        public bool IsGapOccupied(string gapKey)
+        {
+            string[] parts = gapKey.Split('_');
+            Orientation o = (parts[0] == "H") ? Orientation.Horizontal : Orientation.Vertical;
+            int gx = int.Parse(parts[1]);
+            int gy = int.Parse(parts[2]);
+            return IsGapOccupied(o, gx, gy);
+        }
+        #endregion
+
+        #region Wall Visual Management
+        private void CreateWallVisual(WallInfo wallInfo)
+        {
+            GameObject wallObj;
+            
+            if (wallPrefab != null)
+            {
+                wallObj = Instantiate(wallPrefab);
+            }
+            else
+            {
+                wallObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            }
+
+            wallObj.name = $"Wall_{wallInfo.orientation}_{wallInfo.x}_{wallInfo.y}";
+            wallObj.transform.position = wallInfo.position;
+            wallObj.transform.localScale = wallInfo.scale;
+            wallObj.tag = "Wall";
+
+            // Apply material
+            var renderer = wallObj.GetComponent<Renderer>();
+            if (renderer != null && wallMaterial != null)
+            {
+                renderer.material = wallMaterial;
+            }
+            else if (renderer != null)
+            {
+                renderer.material.color = Color.yellow;
+            }
+
+            managedWalls.Add(wallObj);
+        }
+
+        private void OnWallPlaced(WallInfo wallInfo)
+        {
+            // Sync with GridSystem for compatibility
+            if (gridSystem != null)
+            {
+                var gridWallInfo = new GridSystem.WallInfo(
+                    wallInfo.orientation == Orientation.Horizontal ? GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical,
+                    wallInfo.x, wallInfo.y, wallInfo.position, wallInfo.scale
+                );
+                
+                // Update GridSystem state to maintain sync
+                gridSystem.SetGapOccupied(gridWallInfo.orientation, wallInfo.x, wallInfo.y, true);
+                if (wallInfo.orientation == Orientation.Horizontal)
+                    gridSystem.SetGapOccupied(gridWallInfo.orientation, wallInfo.x + 1, wallInfo.y, true);
+                else
+                    gridSystem.SetGapOccupied(gridWallInfo.orientation, wallInfo.x, wallInfo.y + 1, true);
+            }
+        }
+        #endregion
+
+        #region Input & Camera
+        Vector3 GetMouseWorld()
+        {
+            var cam = Camera.main;
+            if (cam == null) return Vector3.zero;
+
+            Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+            // Raycast to a fixed Z plane (compatible with ortho/perspective)
+            Plane plane = new Plane(Vector3.forward, new Vector3(0, 0, placementPlaneZ));
+            if (plane.Raycast(ray, out float enter))
+            {
+                return ray.GetPoint(enter);
+            }
+
+            // Fallback (should rarely happen)
+            Vector3 mouse = Input.mousePosition;
+            mouse.z = Mathf.Abs(cam.transform.position.z - placementPlaneZ);
+            return cam.ScreenToWorldPoint(mouse);
+        }
+        
+        bool IsWithinGridBounds(Vector3 p)
+        {
+            float gridMin = 0f - spacing * 0.5f;
+            float gridMax = Cells * spacing + spacing * 0.5f;
+            return p.x >= gridMin && p.x <= gridMax && p.y >= gridMin && p.y <= gridMax;
+        }
+        #endregion
+
+        #region Game Manager Integration
+        bool CanPlaceWalls()
+        {
+            return gameManager != null && 
+                   ((gameManager.currentState == GameState.PlayerTurn && gameManager.playerWallsRemaining > 0) ||
+                    (gameManager.currentState == GameState.OpponentTurn && gameManager.opponentWallsRemaining > 0));
+        }
+        
+        void DecrementWallCount()
+        {
+            if (gameManager.currentState == GameState.PlayerTurn)
+                gameManager.playerWallsRemaining--;
+            else if (gameManager.currentState == GameState.OpponentTurn)
+                gameManager.opponentWallsRemaining--;
+        }
+        
+        int GetCurrentPlayerWallCount()
+        {
+            return gameManager.currentState == GameState.PlayerTurn ? 
+                   gameManager.playerWallsRemaining : gameManager.opponentWallsRemaining;
+        }
+        #endregion
+
+        #region Public API
+        public int GetManagedWallCount() => managedWalls.Count;
+        
+        public List<GameObject> GetManagedWalls() => new List<GameObject>(managedWalls);
+        
+        public void ClearAllWalls()
+        {
+            // Clear visual walls
+            for (int i = managedWalls.Count - 1; i >= 0; i--)
+            {
+                var go = managedWalls[i];
+                if (go != null) SafeDestroy(go);
+                managedWalls.RemoveAt(i);
+            }
+            
+            // Clear gap arrays
+            ClearGapArrays();
+            
+            // Reset wall counts
+            if (gameManager != null)
+            {
+                gameManager.playerWallsRemaining = gameManager.wallsPerPlayer;
+                gameManager.opponentWallsRemaining = gameManager.wallsPerPlayer;
+            }
+            
+            // Sync with GridSystem
+            if (gridSystem != null)
+                gridSystem.ClearGrid();
+                
+            UnityEngine.Debug.Log("WallManager cleared all walls");
+        }
+        
+        public bool TryPlaceWall(Vector3 worldPosition)
+        {
+            if (!CanPlaceWalls()) return false;
+            
+            if (TryFindNearestGap(worldPosition, out WallInfo info) && CanPlaceWall(info))
+            {
+                CreateWallVisual(info);
+                OccupyWallPositions(info);
+                OnWallPlaced(info);
+                DecrementWallCount();
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // Get wall info at specific coordinates
+        public WallInfo? GetWallAt(Orientation orientation, int x, int y)
+        {
+            if (IsOccupied(orientation, x, y))
+            {
+                Vector3 center = GapCenter(orientation, x, y);
+                return CreateWallInfo(orientation, x, y, center);
+            }
+            return null;
+        }
+        
+        // Check if a specific gap position has a wall
+        public bool HasWallAt(Orientation orientation, int x, int y)
+        {
+            return IsOccupied(orientation, x, y);
+        }
+        #endregion
+
+        #region Utility
+        void SafeDestroy(Object obj)
+        {
+#if UNITY_EDITOR
+            if (!Application.isPlaying) DestroyImmediate(obj);
+            else Destroy(obj);
+#else
+            Destroy(obj);
+#endif
+        }
+        #endregion
+
+        #region Debug & Gizmos
+#if UNITY_EDITOR
+        void OnDrawGizmosSelected()
+        {
+            if (gameManager == null || Cells <= 0) return;
+
+            // Draw board bounds
+            Gizmos.color = Color.white;
+            Vector3 min = new Vector3(-spacing * 0.5f, -spacing * 0.5f, 0f);
+            Vector3 max = new Vector3(Cells * spacing + spacing * 0.5f,
+                                      Cells * spacing + spacing * 0.5f, 0f);
+            Vector3 size = max - min;
+            Gizmos.DrawWireCube(min + size * 0.5f, size);
+
+            if (horizontalGaps == null || verticalGaps == null) return;
+
+            // Draw gap centers and occupancy
+            for (int y = 0; y < Cells; y++)
+            {
+                for (int x = 0; x < Cells; x++)
+                {
+                    Vector3 cH = GapCenter(Orientation.Horizontal, x, y);
+                    Vector3 cV = GapCenter(Orientation.Vertical, x, y);
+
+                    // Vertical gaps (spheres)
+                    Gizmos.color = (verticalGaps[x, y] && y + 1 < VRows && verticalGaps[x, y + 1]) ? Color.red : Color.gray;
+                    Gizmos.DrawSphere(cV, 0.03f);
+
+                    // Horizontal gaps (cubes)
+                    Gizmos.color = (horizontalGaps[x, y] && x + 1 < HCols && horizontalGaps[x + 1, y]) ? Color.red : Color.gray;
+                    Gizmos.DrawCube(cH + Vector3.forward * -0.05f, new Vector3(0.05f, 0.05f, 0.01f));
+                }
+            }
+            
+            // Draw orientation lock indicator
+            if (orientationLock.HasValue)
+            {
+                Gizmos.color = Color.cyan;
+                Vector3 mousePos = GetMouseWorld();
+                Gizmos.DrawWireSphere(mousePos, 0.1f);
+                
+#if UNITY_EDITOR
+                string lockText = orientationLock.Value.ToString();
+                UnityEditor.Handles.Label(mousePos + Vector3.up * 0.2f, $"Locked: {lockText}");
+#endif
+            }
+        }
+#endif
+        #endregion
+        
+        void OnDestroy()
+        {
+            // Clean up preview if it exists
+            if (wallPreview != null)
+            {
+                SafeDestroy(wallPreview);
+            }
+            
+            // Clean up managed walls
+            ClearAllWalls();
+        }
+    }
+}

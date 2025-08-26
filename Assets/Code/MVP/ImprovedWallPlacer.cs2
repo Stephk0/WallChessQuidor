@@ -1,0 +1,397 @@
+using UnityEngine;
+using System.Collections.Generic;
+
+public class ImprovedWallPlacer : MonoBehaviour
+{
+    private GameObject wallPreview;
+    private bool isPlacing = false;
+    public int wallsLeft = 9;
+    
+    // Efficient gap tracking with boolean arrays
+    private bool[,] horizontalGaps = new bool[9, 8]; // [col, row] - 9 cols to handle +1 access
+    private bool[,] verticalGaps = new bool[8, 9];   // [col, row] - 9 rows to handle +1 access
+    
+    [Header("Grid Settings")]
+    public float spacing = 1.2f;
+    public float wallThickness = 0.15f;
+    public float wallLength = 2.4f;
+    
+    [Header("Gap Grid Offsets")]
+    public float horizontalGapOffsetX = 0.5f;
+    public float horizontalGapOffsetY = 0.5f;
+    public float verticalGapOffsetX = 0.5f;
+    public float verticalGapOffsetY = 0.5f;
+    
+    [Header("Gap Detection")]
+    public float horizontalMargin = 0.3f;
+    public float verticalMargin = 0.3f;
+    public float maxDetectionDistance = 1.0f;
+
+    void Update()
+    {
+        if (Input.GetMouseButtonDown(0) && wallsLeft > 0)
+        {
+            StartPlacing();
+        }
+        else if (Input.GetMouseButton(0) && isPlacing)
+        {
+            UpdatePreview();
+        }
+        else if (Input.GetMouseButtonUp(0) && isPlacing)
+        {
+            PlaceWall();
+        }
+    }
+
+    void StartPlacing()
+    {
+        Vector3 mousePos = GetMouseWorld();
+        if (IsWithinGridBounds(mousePos))
+        {
+            isPlacing = true;
+            CreatePreview();
+        }
+    }
+
+    void CreatePreview()
+    {
+        wallPreview = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        wallPreview.name = "WallPreview";
+        var renderer = wallPreview.GetComponent<Renderer>();
+        renderer.material.color = new Color(1, 1, 0, 0.5f);
+        DestroyImmediate(wallPreview.GetComponent<Collider>());
+    }
+
+    void UpdatePreview()
+    {
+        if (wallPreview == null) return;
+        
+        Vector3 mousePos = GetMouseWorld();
+        WallInfo wallInfo = FindNearestGap(mousePos);
+        
+        if (wallInfo != null)
+        {
+            wallPreview.SetActive(true);
+            wallPreview.transform.position = wallInfo.position;
+            wallPreview.transform.localScale = wallInfo.scale;
+            
+            var renderer = wallPreview.GetComponent<Renderer>();
+            if (CanPlaceWall(wallInfo))
+            {
+                renderer.material.color = new Color(0, 1, 0, 0.7f);
+            }
+            else
+            {
+                renderer.material.color = new Color(1, 0, 0, 0.7f);
+            }
+        }
+        else
+        {
+            wallPreview.SetActive(false);
+        }
+    }
+
+    void PlaceWall()
+    {
+        if (wallPreview != null && wallPreview.activeInHierarchy)
+        {
+            Vector3 mousePos = GetMouseWorld();
+            WallInfo wallInfo = FindNearestGap(mousePos);
+            
+            if (wallInfo != null && CanPlaceWall(wallInfo))
+            {
+                wallPreview.GetComponent<Renderer>().material.color = Color.yellow;
+                wallPreview.name = "Wall";
+                wallPreview.tag = "Wall";
+                
+                // Mark gaps as occupied
+                OccupyWallPositions(wallInfo);
+                
+                wallsLeft--;
+                Debug.Log($"Wall placed at ({wallInfo.gridX},{wallInfo.gridY}) {(wallInfo.isHorizontal ? "H" : "V")}! Remaining: {wallsLeft}");
+                wallPreview = null;
+            }
+            else
+            {
+                DestroyImmediate(wallPreview);
+                wallPreview = null;
+            }
+        }
+        else
+        {
+            if (wallPreview != null)
+            {
+                DestroyImmediate(wallPreview);
+                wallPreview = null;
+            }
+        }
+        
+        isPlacing = false;
+    }
+
+    bool IsWithinGridBounds(Vector3 mousePos)
+    {
+        float gridSize = 8 * spacing;
+        return mousePos.x >= -spacing * 0.5f && mousePos.x <= gridSize + spacing * 0.5f &&
+               mousePos.y >= -spacing * 0.5f && mousePos.y <= gridSize + spacing * 0.5f;
+    }
+
+    WallInfo FindNearestGap(Vector3 mousePos)
+    {
+        WallInfo bestHorizontal = null;
+        WallInfo bestVertical = null;
+        float minHorizontalDist = float.MaxValue;
+        float minVerticalDist = float.MaxValue;
+        
+        // Find best horizontal gap
+        for (int gapRow = 0; gapRow < 8; gapRow++)
+        {
+            for (int startCol = 0; startCol < 8; startCol++) // Now safe with 9-col array
+            {
+                Vector3 gapCenter = new Vector3(
+                    (startCol + horizontalGapOffsetX) * spacing,
+                    (gapRow + horizontalGapOffsetY) * spacing,
+                    0
+                );
+                
+                float distance = Vector3.Distance(mousePos, gapCenter);
+                float deltaY = Mathf.Abs(mousePos.y - gapCenter.y);
+                
+                if (deltaY <= horizontalMargin && distance < minHorizontalDist && distance <= maxDetectionDistance)
+                {
+                    minHorizontalDist = distance;
+                    bestHorizontal = CreateHorizontalWallInfo(startCol, gapRow);
+                }
+            }
+        }
+        
+        // Find best vertical gap
+        for (int gapCol = 0; gapCol < 8; gapCol++)
+        {
+            for (int startRow = 0; startRow < 8; startRow++) // Now safe with 9-row array
+            {
+                Vector3 gapCenter = new Vector3(
+                    (gapCol + verticalGapOffsetX) * spacing,
+                    (startRow + verticalGapOffsetY) * spacing,
+                    0
+                );
+                
+                float distance = Vector3.Distance(mousePos, gapCenter);
+                float deltaX = Mathf.Abs(mousePos.x - gapCenter.x);
+                
+                if (deltaX <= verticalMargin && distance < minVerticalDist && distance <= maxDetectionDistance)
+                {
+                    minVerticalDist = distance;
+                    bestVertical = CreateVerticalWallInfo(gapCol, startRow);
+                }
+            }
+        }
+        
+        if (bestHorizontal == null && bestVertical == null) return null;
+        if (bestHorizontal == null) return bestVertical;
+        if (bestVertical == null) return bestHorizontal;
+        
+        return (minHorizontalDist <= minVerticalDist) ? bestHorizontal : bestVertical;
+    }
+    
+    WallInfo CreateHorizontalWallInfo(int startCol, int gapRow)
+    {
+        WallInfo info = new WallInfo();
+        info.isHorizontal = true;
+        info.gridX = startCol;
+        info.gridY = gapRow;
+        
+        info.position = new Vector3(
+            (startCol + horizontalGapOffsetX) * spacing,
+            (gapRow + horizontalGapOffsetY) * spacing,
+            -0.1f
+        );
+        info.scale = new Vector3(wallLength, wallThickness, 0.2f);
+        
+        return info;
+    }
+    
+    WallInfo CreateVerticalWallInfo(int gapCol, int startRow)
+    {
+        WallInfo info = new WallInfo();
+        info.isHorizontal = false;
+        info.gridX = gapCol;
+        info.gridY = startRow;
+        
+        info.position = new Vector3(
+            (gapCol + verticalGapOffsetX) * spacing,
+            (startRow + verticalGapOffsetY) * spacing,
+            -0.1f
+        );
+        info.scale = new Vector3(wallThickness, wallLength, 0.2f);
+        
+        return info;
+    }
+
+    bool CanPlaceWall(WallInfo wallInfo)
+    {
+        if (wallInfo.isHorizontal)
+        {
+            // Check both positions for horizontal wall
+            if (horizontalGaps[wallInfo.gridX, wallInfo.gridY] || 
+                horizontalGaps[wallInfo.gridX + 1, wallInfo.gridY])
+                return false;
+        }
+        else
+        {
+            // Check both positions for vertical wall
+            if (verticalGaps[wallInfo.gridX, wallInfo.gridY] || 
+                verticalGaps[wallInfo.gridX, wallInfo.gridY + 1])
+                return false;
+        }
+        
+        // Check for crossing walls (same center position)
+        return !WouldCrossExistingWall(wallInfo);
+    }
+    
+    bool WouldCrossExistingWallOld(WallInfo newWall)
+    {
+        Vector3 newCenter = newWall.position;
+        
+        if (newWall.isHorizontal)
+        {
+            // Check all vertical walls for same center position
+            for (int col = 0; col < 8; col++)
+            {
+                for (int row = 0; row < 8; row++)
+                {
+                    if (verticalGaps[col, row])
+                    {
+                        Vector3 verticalCenter = new Vector3(
+                            (col + verticalGapOffsetX) * spacing,
+                            (row + verticalGapOffsetY) * spacing,
+                            -0.1f
+                        );
+                        
+                        if (Vector3.Distance(newCenter, verticalCenter) < 0.1f)
+                            return true;
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Check all horizontal walls for same center position
+            for (int col = 0; col < 9; col++)
+            {
+                for (int row = 0; row < 8; row++)
+                {
+                    if (horizontalGaps[col, row])
+                    {
+                        Vector3 horizontalCenter = new Vector3(
+                            (col + horizontalGapOffsetX) * spacing,
+                            (row + horizontalGapOffsetY) * spacing,
+                            -0.1f
+                        );
+                        
+                        if (Vector3.Distance(newCenter, horizontalCenter) < 0.1f)
+                            return true;
+                    }
+                }
+            }
+        }
+        
+        return false;
+    }
+
+    bool WouldCrossExistingWall(WallInfo newWall)
+    {
+        int x = newWall.gridX;
+        int y = newWall.gridY;
+
+        if (newWall.isHorizontal)
+        {
+            // Crossing only if there's a full vertical wall centered at (x,y)
+            // i.e., BOTH vertical halves at (x,y) and (x,y+1) are occupied.
+            // Bounds-safe because verticalGaps is [8,9].
+            if (y + 1 >= verticalGaps.GetLength(1)) return false;
+            return verticalGaps[x, y] && verticalGaps[x, y + 1];
+        }
+        else
+        {
+            // Crossing only if there's a full horizontal wall centered at (x,y)
+            // i.e., BOTH horizontal halves at (x,y) and (x+1,y) are occupied.
+            // Bounds-safe because horizontalGaps is [9,8].
+            if (x + 1 >= horizontalGaps.GetLength(0)) return false;
+            return horizontalGaps[x, y] && horizontalGaps[x + 1, y];
+        }
+    }
+
+
+    void OccupyWallPositions(WallInfo wallInfo)
+    {
+        if (wallInfo.isHorizontal)
+        {
+            horizontalGaps[wallInfo.gridX, wallInfo.gridY] = true;
+            horizontalGaps[wallInfo.gridX + 1, wallInfo.gridY] = true;
+        }
+        else
+        {
+            verticalGaps[wallInfo.gridX, wallInfo.gridY] = true;
+            verticalGaps[wallInfo.gridX, wallInfo.gridY + 1] = true;
+        }
+    }
+
+    Vector3 GetMouseWorld()
+    {
+        Vector3 mouse = Input.mousePosition;
+        mouse.z = 10f;
+        return Camera.main.ScreenToWorldPoint(mouse);
+    }
+
+    public void ClearWalls()
+    {
+        // Clear boolean arrays with correct dimensions
+        for (int i = 0; i < 9; i++) // horizontalGaps is [9,8]
+        {
+            for (int j = 0; j < 8; j++)
+            {
+                horizontalGaps[i, j] = false;
+            }
+        }
+        
+        for (int i = 0; i < 8; i++) // verticalGaps is [8,9]
+        {
+            for (int j = 0; j < 9; j++)
+            {
+                verticalGaps[i, j] = false;
+            }
+        }
+        
+        wallsLeft = 9;
+        
+        GameObject[] walls = GameObject.FindGameObjectsWithTag("Wall");
+        foreach (GameObject wall in walls)
+        {
+            DestroyImmediate(wall);
+        }
+    }
+    
+    public bool IsGapOccupied(string gapKey)
+    {
+        // Legacy compatibility for collision checker
+        string[] parts = gapKey.Split('_');
+        bool isHorizontal = parts[0] == "H";
+        int gx = int.Parse(parts[1]);
+        int gy = int.Parse(parts[2]);
+        
+        if (isHorizontal)
+            return horizontalGaps[gx, gy];
+        else
+            return verticalGaps[gx, gy];
+    }
+}
+
+public class WallInfo
+{
+    public Vector3 position;
+    public Vector3 scale;
+    public bool isHorizontal;
+    public int gridX;
+    public int gridY;
+}
