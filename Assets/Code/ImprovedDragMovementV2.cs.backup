@@ -7,7 +7,8 @@ namespace WallChess
         private Camera mainCamera;
         private bool isDragging = false;
         private Vector3 originalPosition;
-        private float gridSpacing = 1.2f;
+        private WallChessGameManager gameManager;
+        private GridSystem gridSystem;
         private GameObject[] moveHighlights;
         
         [Header("Camera Settings")]
@@ -18,22 +19,38 @@ namespace WallChess
         {
             mainCamera = Camera.main;
             originalPosition = transform.position;
+            
+            // Find the game manager
+            gameManager = FindObjectOfType<WallChessGameManager>();
+            if (gameManager != null)
+            {
+                gridSystem = gameManager.GetGridSystem();
+            }
+            else
+            {
+                Debug.LogError("WallChessGameManager not found!");
+            }
         }
 
         void OnMouseDown()
         {
-            if (gameObject.name == "Player")
+            // Only respond if this is the Player object and it's player's turn
+            if (gameObject.name == "Player" && gameManager != null && gameManager.IsPlayerTurn())
             {
                 isDragging = true;
                 originalPosition = transform.position;
                 ShowValidMoveHighlights();
                 Debug.Log("Started dragging player");
             }
+            else
+            {
+                Debug.Log($"Cannot move: not player turn or wrong object. State: {(gameManager?.currentState.ToString() ?? "null")}");
+            }
         }
 
         void OnMouseDrag()
         {
-            if (isDragging)
+            if (isDragging && gameManager != null && gameManager.IsPlayerTurn())
             {
                 Vector3 mouseWorldPos = GetMouseWorldPosition();
                 transform.position = mouseWorldPos;
@@ -54,7 +71,15 @@ namespace WallChess
                 {
                     Vector3 snapPosition = GridToWorldPosition(targetGridPos);
                     transform.position = snapPosition;
-                    Debug.Log("Moved to: " + targetGridPos);
+                    
+                    // Update the game manager with the new position
+                    if (gameManager != null)
+                    {
+                        gameManager.MovePlayer(targetGridPos);
+                        gameManager.EndTurn(); // End the turn after successful move
+                    }
+                    
+                    Debug.Log($"Player moved to: {targetGridPos}");
                 }
                 else
                 {
@@ -87,14 +112,20 @@ namespace WallChess
                     
                     GameObject highlight = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                     highlight.name = "MoveHighlight";
-                    highlight.transform.position = worldPos + Vector3.forward * -0.2f;
+                    highlight.transform.position = worldPos + Vector3.back * 0.2f;
                     highlight.transform.localScale = Vector3.one * 0.3f;
                     
                     Renderer renderer = highlight.GetComponent<Renderer>();
-                    renderer.material = new Material(Shader.Find("Sprites/Default"));
-                    renderer.material.color = new Color(0, 1, 0, 0.7f);
+                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    mat.color = new Color(0, 1, 0, 0.7f);
+                    mat.SetFloat("_Surface", 1); // Transparent
+                    mat.SetFloat("_Mode", 3);
+                    renderer.material = mat;
                     
-                    DestroyImmediate(highlight.GetComponent<Collider>());
+                    // Remove collider to prevent interference
+                    Collider col = highlight.GetComponent<Collider>();
+                    if (col != null) DestroyImmediate(col);
+                    
                     moveHighlights[validMoves] = highlight;
                     validMoves++;
                 }
@@ -164,16 +195,32 @@ namespace WallChess
 
         Vector2Int WorldToGridPosition(Vector3 worldPos)
         {
-            int x = Mathf.RoundToInt(worldPos.x / gridSpacing);
-            int y = Mathf.RoundToInt(worldPos.y / gridSpacing);
-            x = Mathf.Clamp(x, 0, 8);
-            y = Mathf.Clamp(y, 0, 8);
-            return new Vector2Int(x, y);
+            if (gridSystem != null)
+            {
+                return gridSystem.WorldToGridPosition(worldPos);
+            }
+            else
+            {
+                // Fallback calculation
+                float gridSpacing = 1.2f;
+                int x = Mathf.RoundToInt(worldPos.x / gridSpacing);
+                int y = Mathf.RoundToInt(worldPos.y / gridSpacing);
+                return new Vector2Int(Mathf.Clamp(x, 0, 8), Mathf.Clamp(y, 0, 8));
+            }
         }
 
         Vector3 GridToWorldPosition(Vector2Int gridPos)
         {
-            return new Vector3(gridPos.x * gridSpacing, gridPos.y * gridSpacing, gamePlaneZ);
+            if (gridSystem != null)
+            {
+                return gridSystem.GridToWorldPosition(gridPos);
+            }
+            else
+            {
+                // Fallback calculation
+                float gridSpacing = 1.2f;
+                return new Vector3(gridPos.x * gridSpacing, gridPos.y * gridSpacing, gamePlaneZ);
+            }
         }
 
         bool IsValidMove(Vector2Int from, Vector2Int to)
@@ -189,11 +236,42 @@ namespace WallChess
             if (!((deltaX == 1 && deltaY == 0) || (deltaX == 0 && deltaY == 1)))
                 return false;
             
-            // Check wall collisions using improved system
-            Vector3 fromWorld = GridToWorldPosition(from);
-            Vector3 toWorld = GridToWorldPosition(to);
+            // Check if target tile is occupied
+            if (gridSystem != null && gridSystem.IsTileOccupied(to))
+                return false;
             
-            return !ImprovedCollisionChecker.IsBlocked(fromWorld, toWorld);
+            // Check wall collisions
+            if (gridSystem != null)
+            {
+                return !gridSystem.IsMovementBlocked(from, to);
+            }
+            else
+            {
+                // Fallback to old collision checker
+                Vector3 fromWorld = GridToWorldPosition(from);
+                Vector3 toWorld = GridToWorldPosition(to);
+                return !ImprovedCollisionChecker.IsBlocked(fromWorld, toWorld);
+            }
+        }
+        
+        // Additional debug method to test mouse input
+        void Update()
+        {
+            // Debug mouse clicks
+            if (Input.GetMouseButtonDown(0))
+            {
+                Vector3 mouseWorldPos = GetMouseWorldPosition();
+                Vector2Int gridPos = WorldToGridPosition(mouseWorldPos);
+                Debug.Log($"Mouse clicked at world: {mouseWorldPos}, grid: {gridPos}");
+                
+                // Check if we can detect the player object
+                Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+                RaycastHit hit;
+                if (Physics.Raycast(ray, out hit))
+                {
+                    Debug.Log($"Raycast hit: {hit.collider.gameObject.name}");
+                }
+            }
         }
     }
 }

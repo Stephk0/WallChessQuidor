@@ -38,7 +38,7 @@ namespace WallChess
         public int opponentWallsRemaining = 9;
 
         private GridSystem gridSystem;
-        private PlayerController playerController;
+        private PlayerControllerV2 playerController;
         private WallManager wallManager;
         private GameObject playerAvatar;
         private GameObject opponentAvatar;
@@ -83,7 +83,7 @@ namespace WallChess
             gridSystem.Initialize(gridSettings);
 
             // Initialize other components
-            playerController = gameObject.AddComponent<PlayerController>();
+            playerController = gameObject.AddComponent<PlayerControllerV2>();
             wallManager = gameObject.AddComponent<WallManager>();
 
             // Create player avatars
@@ -242,7 +242,7 @@ namespace WallChess
         
         // Legacy compatibility methods - redirect to GridSystem
         public GridSystem GetGridManager() => gridSystem; // For backward compatibility
-        public PlayerController GetPlayerController() => playerController;
+        public PlayerControllerV2 GetPlayerController() => playerController;
         public WallManager GetWallManager() => wallManager;
         public GameObject GetPlayerAvatar() => playerAvatar;
         public GameObject GetOpponentAvatar() => opponentAvatar;
