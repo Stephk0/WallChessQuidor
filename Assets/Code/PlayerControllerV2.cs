@@ -7,6 +7,7 @@ namespace WallChess
     {
         private WallChessGameManager gameManager;
         private GridSystem gridSystem;
+        private WallManager wallManager;
         private Camera mainCamera;
         
         [Header("Debug")]
@@ -16,6 +17,7 @@ namespace WallChess
         {
             gameManager = gm;
             gridSystem = gm.GetGridSystem();
+            wallManager = gm.GetComponent<WallManager>();
             mainCamera = Camera.main;
             
             // Add drag controllers to both avatars
@@ -55,10 +57,8 @@ namespace WallChess
 
         public bool CanMoveAvatar(bool isPlayer)
         {
-            if (isPlayer)
-                return gameManager.currentState == GameState.PlayerTurn;
-            else
-                return gameManager.currentState == GameState.OpponentTurn;
+            // Use GameManager's new state management
+            return gameManager.CanMovePawn(isPlayer) && gameManager.CanInitiateMove();
         }
 
         public Vector2Int GetAvatarPosition(bool isPlayer)
@@ -68,16 +68,9 @@ namespace WallChess
 
         public void MoveAvatar(bool isPlayer, Vector2Int newPosition)
         {
-            if (isPlayer)
-            {
-                gameManager.MovePlayer(newPosition);
-            }
-            else
-            {
-                gameManager.MoveOpponent(newPosition);
-            }
-            
-            gameManager.EndTurn();
+            // Use GameManager's new unified movement method
+            Vector2Int fromPosition = GetAvatarPosition(isPlayer);
+            gameManager.TryMovePawn(fromPosition, newPosition);
         }
 
         public List<Vector2Int> GetValidMoves(Vector2Int currentPos)
@@ -96,20 +89,166 @@ namespace WallChess
                 // Check grid bounds
                 if (!IsValidGridPosition(newPos)) continue;
                 
-                // Check tile occupancy
+                // Check tile occupancy - neither player can occupy the same tile
                 Vector2Int playerPos = gameManager.playerPosition;
                 Vector2Int opponentPos = gameManager.opponentPosition;
                 if (newPos == playerPos || newPos == opponentPos) continue;
                 
-                // Check wall blocking
-                Vector3 fromWorld = GetWorldPosition(currentPos);
-                Vector3 toWorld = GetWorldPosition(newPos);
-                if (ImprovedCollisionChecker.IsBlocked(fromWorld, toWorld)) continue;
+                // Check if path is blocked by walls using corrected wall blocking logic
+                if (IsMovementBlockedByWalls(currentPos, newPos)) continue;
                 
                 validMoves.Add(newPos);
             }
 
+            if (enableDebugLogs)
+            {
+                Debug.Log($"Valid moves from {currentPos}: [{string.Join(", ", validMoves)}]");
+            }
+
             return validMoves;
+        }
+
+        /// <summary>
+        /// FIXED: Corrected wall blocking check that maps tile coordinates to gap coordinates properly
+        /// </summary>
+        private bool IsMovementBlockedByWalls(Vector2Int from, Vector2Int to)
+        {
+            if (wallManager == null) return false;
+            
+            Vector2Int diff = to - from;
+            
+            if (enableDebugLogs)
+            {
+                Debug.Log($"[MOVEMENT DEBUG] Checking movement from {from} to {to}, diff={diff}");
+            }
+            
+            // Determine which gap to check based on movement direction
+            if (diff.y == 1) // Moving up
+            {
+                // Check horizontal wall between rows from.y and to.y
+                // Horizontal gap is located at the lower row position
+                int gapX = from.x;
+                int gapY = from.y; // Gap is at the source row for upward movement
+                
+                return IsHorizontalWallBlocking(gapX, gapY);
+            }
+            else if (diff.y == -1) // Moving down
+            {
+                // Check horizontal wall between rows to.y and from.y  
+                // Horizontal gap is located at the lower row position
+                int gapX = from.x;
+                int gapY = to.y; // Gap is at the target row for downward movement
+                
+                return IsHorizontalWallBlocking(gapX, gapY);
+            }
+            else if (diff.x == 1) // Moving right
+            {
+                // Check vertical wall between columns from.x and to.x
+                // Vertical gap is located at the left column position
+                int gapX = from.x; // Gap is at the source column for rightward movement  
+                int gapY = from.y;
+                
+                return IsVerticalWallBlocking(gapX, gapY);
+            }
+            else if (diff.x == -1) // Moving left
+            {
+                // Check vertical wall between columns to.x and from.x
+                // Vertical gap is located at the left column position  
+                int gapX = to.x; // Gap is at the target column for leftward movement
+                int gapY = from.y;
+                
+                return IsVerticalWallBlocking(gapX, gapY);
+            }
+            
+            return false; // Invalid movement direction
+        }
+
+        /// <summary>
+        /// Check if a horizontal wall is blocking movement
+        /// A horizontal wall blocks if BOTH of its gap positions are occupied
+        /// FIXED: Check both possible wall positions that could block this gap
+        /// </summary>
+        private bool IsHorizontalWallBlocking(int gapX, int gapY)
+        {
+            // Check bounds first  
+            if (gapX < 0 || gapY < 0) return false;
+            
+            // A horizontal wall can block movement at gapX in two ways:
+            // 1. Wall starts at gapX: occupies (gapX, gapY) and (gapX+1, gapY)
+            // 2. Wall starts at gapX-1: occupies (gapX-1, gapY) and (gapX, gapY)
+            
+            // Check possibility 1: Wall starts at gapX
+            bool wall1Left = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX, gapY);
+            bool wall1Right = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX + 1, gapY);
+            if (wall1Left && wall1Right)
+            {
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"[HORIZONTAL DEBUG] Wall found starting at ({gapX},{gapY}): left={wall1Left}, right={wall1Right}");
+                }
+                return true;
+            }
+            
+            // Check possibility 2: Wall starts at gapX-1  
+            if (gapX - 1 >= 0)
+            {
+                bool wall2Left = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX - 1, gapY);
+                bool wall2Right = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX, gapY);
+                if (wall2Left && wall2Right)
+                {
+                    if (enableDebugLogs)
+                    {
+                        Debug.Log($"[HORIZONTAL DEBUG] Wall found starting at ({gapX - 1},{gapY}): left={wall2Left}, right={wall2Right}");
+                    }
+                    return true;
+                }
+            }
+            
+            return false; // No wall blocks this position
+        }
+
+        /// <summary>
+        /// Check if a vertical wall is blocking movement
+        /// A vertical wall blocks if BOTH of its gap positions are occupied
+        /// FIXED: Check both possible wall positions that could block this gap
+        /// </summary>
+        private bool IsVerticalWallBlocking(int gapX, int gapY)
+        {
+            // Check bounds first
+            if (gapX < 0 || gapY < 0) return false;
+            
+            // A vertical wall can block movement at gapY in two ways:
+            // 1. Wall starts at gapY: occupies (gapX, gapY) and (gapX, gapY+1)
+            // 2. Wall starts at gapY-1: occupies (gapX, gapY-1) and (gapX, gapY)
+            
+            // Check possibility 1: Wall starts at gapY
+            bool wall1Bottom = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY);
+            bool wall1Top = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY + 1);
+            if (wall1Bottom && wall1Top)
+            {
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"[VERTICAL DEBUG] Wall found starting at ({gapX},{gapY}): bottom={wall1Bottom}, top={wall1Top}");
+                }
+                return true;
+            }
+            
+            // Check possibility 2: Wall starts at gapY-1
+            if (gapY - 1 >= 0)
+            {
+                bool wall2Bottom = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY - 1);
+                bool wall2Top = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY);
+                if (wall2Bottom && wall2Top)
+                {
+                    if (enableDebugLogs)
+                    {
+                        Debug.Log($"[VERTICAL DEBUG] Wall found starting at ({gapX},{gapY - 1}): bottom={wall2Bottom}, top={wall2Top}");
+                    }
+                    return true;
+                }
+            }
+            
+            return false; // No wall blocks this position
         }
 
         public bool IsValidMove(Vector2Int from, Vector2Int to)
@@ -126,10 +265,10 @@ namespace WallChess
             Vector2Int opponentPos = gameManager.opponentPosition;
             if (to == playerPos || to == opponentPos) return false;
             
-            // Check wall blocking
-            Vector3 fromWorld = GetWorldPosition(from);
-            Vector3 toWorld = GetWorldPosition(to);
-            return !ImprovedCollisionChecker.IsBlocked(fromWorld, toWorld);
+            // Check wall blocking using corrected logic
+            if (IsMovementBlockedByWalls(from, to)) return false;
+            
+            return true;
         }
 
         bool IsValidGridPosition(Vector2Int pos)
@@ -175,6 +314,7 @@ namespace WallChess
         #region Public API
         public WallChessGameManager GetGameManager() => gameManager;
         public GridSystem GetGridSystem() => gridSystem;
+        public WallManager GetWallManager() => wallManager;
         public Camera GetMainCamera() => mainCamera;
         #endregion
     }

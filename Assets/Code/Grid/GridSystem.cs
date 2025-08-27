@@ -390,9 +390,8 @@ namespace WallChess
                 
                 if (IsValidGridPosition(newPos) && !IsTileOccupied(newPos))
                 {
-                    // Check if path is blocked by walls using WallManager
-                    var wallManager = GetComponent<WallManager>();
-                    if (wallManager == null || !wallManager.IsMovementBlocked(currentPos, newPos))
+                    // Check if path is blocked by walls using corrected logic
+                    if (!IsMovementBlockedByWalls(currentPos, newPos))
                     {
                         validMoves.Add(newPos);
                     }
@@ -400,6 +399,124 @@ namespace WallChess
             }
 
             return validMoves;
+        }
+        
+        /// <summary>
+        /// Check if movement between two adjacent positions is blocked by walls
+        /// Uses corrected logic that properly validates both parts of a wall
+        /// </summary>
+        private bool IsMovementBlockedByWalls(Vector2Int from, Vector2Int to)
+        {
+            Vector2Int diff = to - from;
+            
+            // Determine which gap to check based on movement direction
+            if (diff.y == 1) // Moving up
+            {
+                // Check horizontal wall above 'from' position
+                int gapX = from.x;
+                int gapY = from.y; // Gap between row 'from.y' and row 'to.y'
+                
+                return IsHorizontalWallBlocking(gapX, gapY);
+            }
+            else if (diff.y == -1) // Moving down
+            {
+                // Check horizontal wall below 'from' position
+                int gapX = from.x;
+                int gapY = to.y; // Gap between row 'to.y' and row 'from.y' (use target row)
+                
+                return IsHorizontalWallBlocking(gapX, gapY);
+            }
+            else if (diff.x == 1) // Moving right
+            {
+                // Check vertical wall to the right of 'from' position
+                int gapX = from.x; // Gap is at the 'from' position for rightward movement
+                int gapY = from.y;
+                
+                return IsVerticalWallBlocking(gapX, gapY);
+            }
+            else if (diff.x == -1) // Moving left
+            {
+                // Check vertical wall to the left of 'from' position  
+                // The gap between tile column 'to.x' and 'from.x' is at gap position 'to.x'
+                int gapX = to.x; // FIXED: Use target column instead of from.x - 1
+                int gapY = from.y;
+                
+                return IsVerticalWallBlocking(gapX, gapY);
+            }
+            
+            return false; // Invalid movement direction
+        }
+        
+        /// <summary>
+        /// Check if a horizontal wall is blocking movement
+        /// A horizontal wall blocks if BOTH of its gap positions are occupied
+        /// FIXED: Check both possible wall positions that could block this gap
+        /// </summary>
+        private bool IsHorizontalWallBlocking(int gapX, int gapY)
+        {
+            // Check bounds first
+            if (gapX < 0 || gapY < 0) return false;
+            
+            // A horizontal wall can block movement at gapX in two ways:
+            // 1. Wall starts at gapX: occupies (gapX, gapY) and (gapX+1, gapY)
+            // 2. Wall starts at gapX-1: occupies (gapX-1, gapY) and (gapX, gapY)
+            
+            // Check possibility 1: Wall starts at gapX
+            bool wall1Left = IsGapOccupied(Orientation.Horizontal, gapX, gapY);
+            bool wall1Right = IsGapOccupied(Orientation.Horizontal, gapX + 1, gapY);
+            if (wall1Left && wall1Right)
+            {
+                return true;
+            }
+            
+            // Check possibility 2: Wall starts at gapX-1
+            if (gapX - 1 >= 0)
+            {
+                bool wall2Left = IsGapOccupied(Orientation.Horizontal, gapX - 1, gapY);
+                bool wall2Right = IsGapOccupied(Orientation.Horizontal, gapX, gapY);
+                if (wall2Left && wall2Right)
+                {
+                    return true;
+                }
+            }
+            
+            return false; // No wall blocks this position
+        }
+        
+        /// <summary>
+        /// Check if a vertical wall is blocking movement
+        /// A vertical wall blocks if BOTH of its gap positions are occupied
+        /// FIXED: Check both possible wall positions that could block this gap
+        /// </summary>
+        private bool IsVerticalWallBlocking(int gapX, int gapY)
+        {
+            // Check bounds first
+            if (gapX < 0 || gapY < 0) return false;
+            
+            // A vertical wall can block movement at gapY in two ways:
+            // 1. Wall starts at gapY: occupies (gapX, gapY) and (gapX, gapY+1)
+            // 2. Wall starts at gapY-1: occupies (gapX, gapY-1) and (gapX, gapY)
+            
+            // Check possibility 1: Wall starts at gapY
+            bool wall1Bottom = IsGapOccupied(Orientation.Vertical, gapX, gapY);
+            bool wall1Top = IsGapOccupied(Orientation.Vertical, gapX, gapY + 1);
+            if (wall1Bottom && wall1Top)
+            {
+                return true;
+            }
+            
+            // Check possibility 2: Wall starts at gapY-1
+            if (gapY - 1 >= 0)
+            {
+                bool wall2Bottom = IsGapOccupied(Orientation.Vertical, gapX, gapY - 1);
+                bool wall2Top = IsGapOccupied(Orientation.Vertical, gapX, gapY);
+                if (wall2Bottom && wall2Top)
+                {
+                    return true;
+                }
+            }
+            
+            return false; // No wall blocks this position
         }
         #endregion
 
@@ -416,17 +533,6 @@ namespace WallChess
                 if (x < 0 || x >= VerticalGapCols || y < 0 || y >= VerticalGapRows) return true;
                 return verticalGaps[x, y];
             }
-        }
-
-        public bool IsGapOccupied(string gapKey)
-        {
-            string[] parts = gapKey.Split('_');
-            if (parts.Length != 3) return true;
-            
-            Orientation o = (parts[0] == "H") ? Orientation.Horizontal : Orientation.Vertical;
-            if (!int.TryParse(parts[1], out int gx) || !int.TryParse(parts[2], out int gy)) return true;
-            
-            return IsGapOccupied(o, gx, gy);
         }
 
         public void SetGapOccupied(Orientation orientation, int x, int y, bool occupied)

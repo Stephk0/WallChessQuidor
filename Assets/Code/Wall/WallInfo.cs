@@ -20,11 +20,6 @@ namespace WallChess
                 this.position = pos;
                 this.scale = scale;
             }
-            
-            public string GetGapKey()
-            {
-                return $"{(orientation == Orientation.Horizontal ? "H" : "V")}_{x}_{y}";
-            }
         }
     }
 }

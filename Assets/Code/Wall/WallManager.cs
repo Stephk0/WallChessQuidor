@@ -76,6 +76,9 @@ namespace WallChess
             InitializeGapArrays();
             
             UnityEngine.Debug.Log("WallManager initialized with advanced grid system integration");
+            
+            // Run wall blocking test after initialization
+           // Invoke(nameof(RunAutomaticWallTest), 0.5f);
         }
         
         private void InitializeGapArrays()
@@ -97,13 +100,170 @@ namespace WallChess
         }
         #endregion
         
+        #region Debug Testing
+        public void RunAutomaticWallTest()
+        {
+            UnityEngine.Debug.Log("=== AUTOMATIC WALL BLOCKING TEST ===");
+            
+            // Clear all walls first
+            ClearGapArrays();
+            
+            // Test the specific scenario reported by user
+            UnityEngine.Debug.Log("\n--- SPECIFIC TEST: Horizontal wall at (4,7) ---");
+            
+            // Place horizontal wall at (4,7) - this should occupy horizontal gaps (4,7) and (5,7)
+            SetGapOccupiedForTesting(Orientation.Horizontal, 4, 7, true);
+            SetGapOccupiedForTesting(Orientation.Horizontal, 5, 7, true);
+            UnityEngine.Debug.Log("Placed horizontal wall at (4,7) - occupying gaps (4,7) and (5,7)");
+            
+            // Test 1: Player at starting position (4,8) moving down to (4,7) - should be BLOCKED
+            Vector2Int startPos = new Vector2Int(4, 8);
+            Vector2Int downTarget1 = new Vector2Int(4, 7);
+            bool blocked1 = IsMovementBlocked(startPos, downTarget1);
+            UnityEngine.Debug.Log($"Movement from {startPos} DOWN to {downTarget1}: {(blocked1 ? "BLOCKED" : "ALLOWED")} (should be BLOCKED)");
+            
+            // Test 2: Player moves right to (5,8) then tries to move down to (5,7) - should be BLOCKED
+            Vector2Int rightPos = new Vector2Int(5, 8);
+            Vector2Int downTarget2 = new Vector2Int(5, 7);
+            bool blocked2 = IsMovementBlocked(rightPos, downTarget2);
+            UnityEngine.Debug.Log($"Movement from {rightPos} DOWN to {downTarget2}: {(blocked2 ? "BLOCKED" : "ALLOWED")} (should be BLOCKED)");
+            
+            // Test 3: Check if the wall properly blocks adjacent positions
+            Vector2Int rightPos2 = new Vector2Int(6, 8);
+            Vector2Int downTarget3 = new Vector2Int(6, 7);
+            bool blocked3 = IsMovementBlocked(rightPos2, downTarget3);
+            UnityEngine.Debug.Log($"Movement from {rightPos2} DOWN to {downTarget3}: {(blocked3 ? "BLOCKED" : "ALLOWED")} (should be ALLOWED - no wall here)");
+            
+            UnityEngine.Debug.Log("=== SPECIFIC TEST COMPLETE ===");
+            
+            // Original vertical wall tests
+            ClearGapArrays();
+            Vector2Int pawn = new Vector2Int(4, 4);
+            UnityEngine.Debug.Log($"\nTesting vertical walls with pawn at {pawn}");
+            
+            // Test 1: Place vertical wall to the RIGHT (gap at x=4)
+            UnityEngine.Debug.Log("--- Test 1: RIGHT wall ---");
+            SetGapOccupiedForTesting(Orientation.Vertical, 4, 4, true);
+            SetGapOccupiedForTesting(Orientation.Vertical, 4, 5, true);
+            
+            Vector2Int rightTarget = new Vector2Int(5, 4);
+            bool rightBlocked = IsMovementBlocked(pawn, rightTarget);
+            UnityEngine.Debug.Log($"Movement RIGHT to {rightTarget}: {(rightBlocked ? "BLOCKED" : "ALLOWED")} (should be BLOCKED)");
+            
+            // Test 2: Clear and place wall to LEFT (gap at x=3)
+            ClearGapArrays();
+            UnityEngine.Debug.Log("--- Test 2: LEFT wall ---");
+            SetGapOccupiedForTesting(Orientation.Vertical, 3, 4, true);
+            SetGapOccupiedForTesting(Orientation.Vertical, 3, 5, true);
+            
+            Vector2Int leftTarget = new Vector2Int(3, 4);
+            bool leftBlocked = IsMovementBlocked(pawn, leftTarget);
+            UnityEngine.Debug.Log($"Movement LEFT to {leftTarget}: {(leftBlocked ? "BLOCKED" : "ALLOWED")} (should be BLOCKED)");
+            
+            UnityEngine.Debug.Log("=== AUTOMATIC TEST COMPLETE ===");
+        }
+        
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        public void TestWallBlocking()
+        {
+            UnityEngine.Debug.Log("=== TESTING WALL BLOCKING LOGIC ===");
+            UnityEngine.Debug.Log($"Grid info: Cells={Cells}, VCols={VCols}, VRows={VRows}, HCols={HCols}, HRows={HRows}");
+            
+            // Test case: Pawn at (4,4) - middle of a 9x9 grid
+            Vector2Int testPawn = new Vector2Int(4, 4);
+            
+            // Clear all walls first
+            ClearGapArrays();
+            
+            // Test 1: Place vertical wall to RIGHT of pawn
+            UnityEngine.Debug.Log("\n--- TEST 1: Vertical wall to RIGHT of pawn ---");
+            UnityEngine.Debug.Log($"Pawn at tile ({testPawn.x},{testPawn.y})");
+            
+            // The RIGHT wall gap should be at x=pawn.x, but what about y?
+            // Let's try gap y = pawn.y (which is 4)
+            int rightGapX = testPawn.x; // 4
+            int rightGapY = testPawn.y; // 4
+            
+            UnityEngine.Debug.Log($"Trying to place vertical wall at gap ({rightGapX},{rightGapY}) and ({rightGapX},{rightGapY + 1})");
+            
+            // Check bounds first
+            if (rightGapX >= 0 && rightGapX < VCols && rightGapY >= 0 && rightGapY + 1 < VRows)
+            {
+                SetGapOccupiedForTesting(Orientation.Vertical, rightGapX, rightGapY, true);
+                SetGapOccupiedForTesting(Orientation.Vertical, rightGapX, rightGapY + 1, true);
+                
+                UnityEngine.Debug.Log($"Successfully placed wall at gaps ({rightGapX},{rightGapY}) and ({rightGapX},{rightGapY + 1})");
+                
+                // Test rightward movement (should be blocked)
+                Vector2Int rightTarget = testPawn + Vector2Int.right; // (5,4)
+                bool rightBlocked = IsPathBlocked(testPawn, rightTarget);
+                UnityEngine.Debug.Log($"Movement RIGHT to ({rightTarget.x},{rightTarget.y}): {(rightBlocked ? "BLOCKED" : "ALLOWED")} (should be BLOCKED)");
+            }
+            else
+            {
+                UnityEngine.Debug.Log($"ERROR: Gap position ({rightGapX},{rightGapY}) or ({rightGapX},{rightGapY + 1}) is out of bounds!");
+                UnityEngine.Debug.Log($"Valid ranges: x=[0,{VCols-1}], y=[0,{VRows-1}]");
+            }
+            
+            // Clear and test wall to LEFT
+            ClearGapArrays();
+            
+            UnityEngine.Debug.Log("\n--- TEST 2: Vertical wall to LEFT of pawn ---");
+            
+            // For leftward movement from (4,4) to (3,4), we check gap at target column (3)
+            int leftGapX = testPawn.x - 1; // 3 (gap between columns 3 and 4)
+            int leftGapY = testPawn.y; // 4
+            
+            UnityEngine.Debug.Log($"Trying to place vertical wall at gap ({leftGapX},{leftGapY}) and ({leftGapX},{leftGapY + 1})");
+            
+            // Check bounds first
+            if (leftGapX >= 0 && leftGapX < VCols && leftGapY >= 0 && leftGapY + 1 < VRows)
+            {
+                SetGapOccupiedForTesting(Orientation.Vertical, leftGapX, leftGapY, true);
+                SetGapOccupiedForTesting(Orientation.Vertical, leftGapX, leftGapY + 1, true);
+                
+                UnityEngine.Debug.Log($"Successfully placed wall at gaps ({leftGapX},{leftGapY}) and ({leftGapX},{leftGapY + 1})");
+                
+                // Test leftward movement (should be blocked)
+                Vector2Int leftTarget = testPawn + Vector2Int.left; // (3,4)
+                bool leftBlocked = IsPathBlocked(testPawn, leftTarget);
+                UnityEngine.Debug.Log($"Movement LEFT to ({leftTarget.x},{leftTarget.y}): {(leftBlocked ? "BLOCKED" : "ALLOWED")} (should be BLOCKED)");
+            }
+            else
+            {
+                UnityEngine.Debug.Log($"ERROR: Gap position ({leftGapX},{leftGapY}) or ({leftGapX},{leftGapY + 1}) is out of bounds!");
+                UnityEngine.Debug.Log($"Valid ranges: x=[0,{VCols-1}], y=[0,{VRows-1}]");
+            }
+            
+            UnityEngine.Debug.Log("=== END WALL BLOCKING TEST ===");
+        }
+        #endregion
+        
         #region Unity Lifecycle
         void Update()
         {
-            // Handle wall placement input
-            if (Input.GetMouseButtonDown(0) && CanPlaceWalls())
+            // Press Y to run horizontal wall test
+            if (Input.GetKeyDown(KeyCode.Y))
             {
-                TryStartPlacing();
+                RunAutomaticWallTest();
+            }
+            
+            // Press T to run wall blocking test
+            if (Input.GetKeyDown(KeyCode.T))
+            {
+                TestWallBlocking();
+            }
+            // Handle wall placement input only if GameManager allows it AND we're not clicking on an avatar
+            if (Input.GetMouseButtonDown(0) && gameManager.CanInitiateWallPlacement())
+            {
+                // Check if we're clicking on an avatar first
+                if (!IsClickingOnAvatar())
+                {
+                    if (gameManager.TryStartWallPlacement())
+                    {
+                        TryStartPlacing();
+                    }
+                }
             }
             else if (Input.GetMouseButton(0) && isPlacing)
             {
@@ -113,6 +273,36 @@ namespace WallChess
             {
                 PlaceWall();
             }
+            // Handle cancellation when mouse is released outside bounds or invalid area
+            else if (Input.GetMouseButtonUp(0) && gameManager.GetCurrentState() == GameState.WallPlacement && !isPlacing)
+            {
+                // Cancel wall placement if we were in wall placement state but not actively placing
+                gameManager.CompleteWallPlacement(false);
+            }
+        }
+
+        /// <summary>
+        /// Check if the mouse is clicking on a player avatar to avoid conflicts
+        /// </summary>
+        bool IsClickingOnAvatar()
+        {
+            Vector3 mousePos = GetMouseWorld();
+            
+            // Check player avatar position
+            Vector3 playerWorldPos = gameManager.GetGridSystem().GridToWorldPosition(gameManager.playerPosition);
+            if (Vector3.Distance(mousePos, playerWorldPos) < gameManager.tileSize * 0.6f)
+            {
+                return true;
+            }
+            
+            // Check opponent avatar position
+            Vector3 opponentWorldPos = gameManager.GetGridSystem().GridToWorldPosition(gameManager.opponentPosition);
+            if (Vector3.Distance(mousePos, opponentWorldPos) < gameManager.tileSize * 0.6f)
+            {
+                return true;
+            }
+            
+            return false;
         }
         #endregion
 
@@ -147,7 +337,9 @@ namespace WallChess
             Vector3 mousePos = GetMouseWorld();
             if (!IsWithinGridBounds(mousePos)) 
             { 
-                wallPreview.SetActive(false); 
+                wallPreview.SetActive(false);
+                // If we've been out of bounds for a while, cancel wall placement
+                // This prevents the state from getting stuck
                 return; 
             }
 
@@ -170,10 +362,14 @@ namespace WallChess
 
         void PlaceWall()
         {
+            bool wallPlacementSuccessful = false;
+            
             if (wallPreview != null && wallPreview.activeInHierarchy)
             {
                 Vector3 mousePos = GetMouseWorld();
-                if (TryFindNearestGap(mousePos, out WallInfo info) && CanPlaceWall(info))
+                
+                // Check if we're still within bounds when trying to place
+                if (IsWithinGridBounds(mousePos) && TryFindNearestGap(mousePos, out WallInfo info) && CanPlaceWall(info))
                 {
                     // Create actual wall
                     CreateWallVisual(info);
@@ -181,14 +377,18 @@ namespace WallChess
                     // Mark gaps as occupied
                     OccupyWallPositions(info);
                     
-                    // Notify game manager
+                    // Notify game manager and grid system
                     OnWallPlaced(info);
                     
-                    // Decrement wall count and end turn
-                    DecrementWallCount();
-                    gameManager.EndTurn();
+                    // Let GameManager handle turn transition and wall count
+                    // (This is now handled in GameManager.OnWallPlaced event)
                     
-                    UnityEngine.Debug.Log($"Wall placed at ({info.x},{info.y}) {info.orientation}! Player walls remaining: {GetCurrentPlayerWallCount()}");
+                    wallPlacementSuccessful = true;
+                    UnityEngine.Debug.Log($"Wall placed at ({info.x},{info.y}) {info.orientation}!");
+                }
+                else
+                {
+                    UnityEngine.Debug.Log("Wall placement failed - invalid position or out of bounds");
                 }
                 
                 // Clean up preview
@@ -196,8 +396,16 @@ namespace WallChess
                 wallPreview = null;
                 wallPreviewRenderer = null;
             }
+            else
+            {
+                UnityEngine.Debug.Log("Wall placement cancelled - no valid preview");
+            }
             
-            orientationLock = null; // reset after placement attempt
+            // Always complete wall placement, regardless of success
+            gameManager.CompleteWallPlacement(wallPlacementSuccessful);
+            
+            // Reset placement state
+            orientationLock = null; 
             isPlacing = false;
         }
         #endregion
@@ -384,25 +592,85 @@ namespace WallChess
         #region Wall Validation & Placement Logic  
         bool CanPlaceWall(in WallInfo w)
         {
-            // Check if current player has walls remaining
-            if (!CanPlaceWalls()) return false;
+            // TEMPORARY DEBUG VERSION - Remove this after fixing
+            UnityEngine.Debug.Log($"[DEBUG] CanPlaceWall called for {w.orientation} wall at ({w.x},{w.y})");
             
-            // Bounds and occupancy checks
+            // Check if GameManager allows wall placement
+            if (gameManager == null)
+            {
+                UnityEngine.Debug.Log($"[DEBUG] gameManager is null!");
+                return false;
+            }
+            
+            bool canPlaceWalls = gameManager.CanPlaceWalls();
+            UnityEngine.Debug.Log($"[DEBUG] gameManager.CanPlaceWalls() = {canPlaceWalls}");
+            UnityEngine.Debug.Log($"[DEBUG] gameManager currentAction = {gameManager.GetCurrentAction()}");
+            if (!canPlaceWalls) return false;
+            
+            // Check if current player has walls remaining
+            bool hasWalls = gameManager.CurrentPlayerHasWalls();
+            UnityEngine.Debug.Log($"[DEBUG] gameManager.CurrentPlayerHasWalls() = {hasWalls}");
+            UnityEngine.Debug.Log($"[DEBUG] currentPlayer = {gameManager.GetCurrentPlayer()}");
+            UnityEngine.Debug.Log($"[DEBUG] playerWallsRemaining = {gameManager.playerWallsRemaining}");
+            UnityEngine.Debug.Log($"[DEBUG] opponentWallsRemaining = {gameManager.opponentWallsRemaining}");
+            if (!hasWalls) return false;
+            
+            // For now, assume all other checks pass to focus on the state issue
+            UnityEngine.Debug.Log($"[DEBUG] State checks passed! Now checking bounds, occupancy, crossing, and paths...");
+            
+            // Add back bounds and occupancy checks
             if (w.orientation == Orientation.Horizontal)
             {
-                if (w.x < 0 || w.x + 1 >= HCols || w.y < 0 || w.y >= HRows) return false;
-                if (IsOccupied(Orientation.Horizontal, w.x, w.y)) return false;
-                if (IsOccupied(Orientation.Horizontal, w.x + 1, w.y)) return false;
+                // Bounds check
+                if (w.x < 0 || w.x + 1 >= HCols || w.y < 0 || w.y >= HRows) {
+                    UnityEngine.Debug.Log($"[DEBUG] FAILED: Horizontal bounds (x={w.x}, y={w.y}, HCols={HCols}, HRows={HRows})");
+                    return false;
+                }
+                // Occupancy check
+                if (IsOccupied(Orientation.Horizontal, w.x, w.y)) {
+                    UnityEngine.Debug.Log($"[DEBUG] FAILED: Horizontal position ({w.x},{w.y}) occupied");
+                    return false;
+                }
+                if (IsOccupied(Orientation.Horizontal, w.x + 1, w.y)) {
+                    UnityEngine.Debug.Log($"[DEBUG] FAILED: Horizontal position ({w.x + 1},{w.y}) occupied");
+                    return false;
+                }
             }
-            else
+            else // Vertical
             {
-                if (w.x < 0 || w.x >= VCols || w.y < 0 || w.y + 1 >= VRows) return false;
-                if (IsOccupied(Orientation.Vertical, w.x, w.y)) return false;
-                if (IsOccupied(Orientation.Vertical, w.x, w.y + 1)) return false;
+                // Bounds check
+                if (w.x < 0 || w.x >= VCols || w.y < 0 || w.y + 1 >= VRows) {
+                    UnityEngine.Debug.Log($"[DEBUG] FAILED: Vertical bounds (x={w.x}, y={w.y}, VCols={VCols}, VRows={VRows})");
+                    return false;
+                }
+                // Occupancy check
+                if (IsOccupied(Orientation.Vertical, w.x, w.y)) {
+                    UnityEngine.Debug.Log($"[DEBUG] FAILED: Vertical position ({w.x},{w.y}) occupied");
+                    return false;
+                }
+                if (IsOccupied(Orientation.Vertical, w.x, w.y + 1)) {
+                    UnityEngine.Debug.Log($"[DEBUG] FAILED: Vertical position ({w.x},{w.y + 1}) occupied");
+                    return false;
+                }
             }
-
-            // Check crossing prevention
-            return !WouldCrossExistingWall(w) && !WouldBlockPlayerPaths(w);
+            
+            // Check crossing and path blocking with debug
+            bool crossCheck = !WouldCrossExistingWall(w);
+            bool pathCheck = !WouldBlockPlayerPaths(w);
+            UnityEngine.Debug.Log($"[DEBUG] Crossing check: {crossCheck}, Path check: {pathCheck}");
+            
+            if (!crossCheck) {
+                UnityEngine.Debug.Log($"[DEBUG] FAILED: Would cross existing wall");
+                return false;
+            }
+            if (!pathCheck) {
+                UnityEngine.Debug.Log($"[DEBUG] FAILED: Would block player paths");
+                return false;
+            }
+            
+            UnityEngine.Debug.Log($"[DEBUG] SUCCESS: All validation passed!");
+            return true;
+    
         }
 
         // Efficient pair-aware crossing detection
@@ -478,7 +746,7 @@ namespace WallChess
                     // Check if already visited
                     if (visited.Contains(next)) continue;
                     
-                    // Check if path is blocked by wall
+                    // Check if path is blocked by wall using corrected logic
                     if (IsPathBlocked(current, next)) continue;
                     
                     queue.Enqueue(next);
@@ -494,45 +762,130 @@ namespace WallChess
         {
             Vector2Int diff = to - from;
             
+            // UnityEngine.Debug.Log($"[PATH DEBUG] Checking movement from {from} to {to}, diff={diff}");
+            
             // Determine which gap to check based on movement direction
             if (diff.y == 1) // Moving up
             {
-                // Check horizontal gap above 'from'
+                // Check horizontal wall above 'from' position
                 int gapX = from.x;
-                int gapY = from.y;
-                return gapX < HCols && gapY < HRows && 
-                       horizontalGaps[gapX, gapY] && 
-                       (gapX + 1 >= HCols || horizontalGaps[gapX + 1, gapY]);
+                int gapY = from.y; // Gap is at the 'from' position for upward movement
+                
+                // UnityEngine.Debug.Log($"[PATH DEBUG] Moving UP: checking horizontal gap ({gapX},{gapY})");
+                return IsHorizontalWallBlocking(gapX, gapY);
             }
             else if (diff.y == -1) // Moving down
             {
-                // Check horizontal gap below 'to'
-                int gapX = to.x;
-                int gapY = to.y;
-                return gapX < HCols && gapY < HRows &&
-                       horizontalGaps[gapX, gapY] && 
-                       (gapX + 1 >= HCols || horizontalGaps[gapX + 1, gapY]);
+                // Check horizontal wall below 'from' position
+                int gapX = from.x;
+                int gapY = to.y; // Gap between row 'to.y' and row 'from.y' (use target row)
+                
+                // UnityEngine.Debug.Log($"[PATH DEBUG] Moving DOWN: checking horizontal gap ({gapX},{gapY})");
+                return IsHorizontalWallBlocking(gapX, gapY);
             }
             else if (diff.x == 1) // Moving right
             {
-                // Check vertical gap to the right of 'from'
-                int gapX = from.x;
+                // Check vertical wall to the right of 'from' position
+                int gapX = from.x; // Gap is at the 'from' position for rightward movement
                 int gapY = from.y;
-                return gapX < VCols && gapY < VRows &&
-                       verticalGaps[gapX, gapY] && 
-                       (gapY + 1 >= VRows || verticalGaps[gapX, gapY + 1]);
+                
+                // UnityEngine.Debug.Log($"[PATH DEBUG] Moving RIGHT: checking vertical gap ({gapX},{gapY})");
+                return IsVerticalWallBlocking(gapX, gapY);
             }
             else if (diff.x == -1) // Moving left
             {
-                // Check vertical gap to the left of 'to'
-                int gapX = to.x;
-                int gapY = to.y;
-                return gapX < VCols && gapY < VRows &&
-                       verticalGaps[gapX, gapY] && 
-                       (gapY + 1 >= VRows || verticalGaps[gapX, gapY + 1]);
+                // Check vertical wall to the left of 'from' position
+                // The gap between tile column 'to.x' and 'from.x' is at gap position 'to.x'
+                int gapX = to.x; // FIXED: Use target column instead of from.x - 1
+                int gapY = from.y;
+                
+                // UnityEngine.Debug.Log($"[PATH DEBUG] Moving LEFT: checking vertical gap ({gapX},{gapY})");
+                return IsVerticalWallBlocking(gapX, gapY);
             }
             
             return false; // Invalid movement
+        }
+        
+        /// <summary>
+        /// Check if a horizontal wall is blocking movement
+        /// A horizontal wall blocks if BOTH of its gap positions are occupied
+        /// FIXED: Check both possible wall positions that could block this gap
+        /// </summary>
+        bool IsHorizontalWallBlocking(int gapX, int gapY)
+        {
+            // Check bounds first
+            if (gapX < 0 || gapY < 0 || gapY >= HRows) return false;
+            
+            // A horizontal wall can block movement at gapX in two ways:
+            // 1. Wall starts at gapX: occupies (gapX, gapY) and (gapX+1, gapY)
+            // 2. Wall starts at gapX-1: occupies (gapX-1, gapY) and (gapX, gapY)
+            
+            // Check possibility 1: Wall starts at gapX
+            if (gapX + 1 < HCols)
+            {
+                bool wall1Left = horizontalGaps[gapX, gapY];
+                bool wall1Right = horizontalGaps[gapX + 1, gapY];
+                if (wall1Left && wall1Right)
+                {
+                    UnityEngine.Debug.Log($"[HORIZONTAL DEBUG] Wall found starting at ({gapX},{gapY}): left={wall1Left}, right={wall1Right}");
+                    return true;
+                }
+            }
+            
+            // Check possibility 2: Wall starts at gapX-1
+            if (gapX - 1 >= 0)
+            {
+                bool wall2Left = horizontalGaps[gapX - 1, gapY];
+                bool wall2Right = horizontalGaps[gapX, gapY];
+                if (wall2Left && wall2Right)
+                {
+                    UnityEngine.Debug.Log($"[HORIZONTAL DEBUG] Wall found starting at ({gapX - 1},{gapY}): left={wall2Left}, right={wall2Right}");
+                    return true;
+                }
+            }
+            
+            return false; // No wall blocks this position
+        }
+        
+        /// <summary>
+        /// Check if a vertical wall is blocking movement
+        /// A vertical wall blocks if BOTH of its gap positions are occupied
+        /// FIXED: Check both possible wall positions that could block this gap
+        /// </summary>
+        bool IsVerticalWallBlocking(int gapX, int gapY)
+        {
+            // Check bounds first
+            if (gapX < 0 || gapY < 0 || gapX >= VCols) return false;
+            
+            // A vertical wall can block movement at gapY in two ways:
+            // 1. Wall starts at gapY: occupies (gapX, gapY) and (gapX, gapY+1)
+            // 2. Wall starts at gapY-1: occupies (gapX, gapY-1) and (gapX, gapY)
+            
+            // Check possibility 1: Wall starts at gapY
+            if (gapY + 1 < VRows)
+            {
+                bool wall1Bottom = verticalGaps[gapX, gapY];
+                bool wall1Top = verticalGaps[gapX, gapY + 1];
+                if (wall1Bottom && wall1Top)
+                {
+                    // UnityEngine.Debug.Log($"[VERTICAL DEBUG] Wall found starting at ({gapX},{gapY}): bottom={wall1Bottom}, top={wall1Top}");
+                    return true;
+                }
+            }
+            
+            // Check possibility 2: Wall starts at gapY-1
+            if (gapY - 1 >= 0)
+            {
+                bool wall2Bottom = verticalGaps[gapX, gapY - 1];
+                bool wall2Top = verticalGaps[gapX, gapY];
+                if (wall2Bottom && wall2Top)
+                {
+                    // UnityEngine.Debug.Log($"[VERTICAL DEBUG] Wall found starting at ({gapX},{gapY - 1}): bottom={wall2Bottom}, top={wall2Top}");
+                    return true;
+                }
+            }
+            
+            return false; // No wall blocks this position
         }
 
         void OccupyWallPositions(in WallInfo w)
@@ -601,15 +954,6 @@ namespace WallChess
         public bool IsGapOccupied(Orientation o, int x, int y)
         {
             return IsOccupied(o, x, y);
-        }
-
-        public bool IsGapOccupied(string gapKey)
-        {
-            string[] parts = gapKey.Split('_');
-            Orientation o = (parts[0] == "H") ? Orientation.Horizontal : Orientation.Vertical;
-            int gx = int.Parse(parts[1]);
-            int gy = int.Parse(parts[2]);
-            return IsGapOccupied(o, gx, gy);
         }
         #endregion
 
@@ -686,37 +1030,52 @@ namespace WallChess
             return cam.ScreenToWorldPoint(mouse);
         }
         
+        /// <summary>
+        /// FIXED: Check if position is within the full grid bounds including boundary gaps
+        /// Now allows wall placement on outermost boundary gaps
+        /// </summary>
         bool IsWithinGridBounds(Vector3 p)
         {
-            // Walls can only be placed in gaps between tiles
-            // For a 9x9 tile grid, gaps are between positions 0.5 to 7.5 (8 gap positions)
-            float minGapPos = 0.5f * spacing;  // First gap between tiles 0 and 1
-            float maxGapPos = (Cells - 1.5f) * spacing;  // Last gap between tiles 7 and 8
+            // Calculate the full extent of valid gap positions including boundaries
+            // For horizontal walls: valid X range is [0 to (Cells-1)*spacing] for gap centers
+            // For vertical walls: valid Y range is [0 to (Cells-1)*spacing] for gap centers
             
-            return p.x >= minGapPos && p.x <= maxGapPos && p.y >= minGapPos && p.y <= maxGapPos;
+            // Use a reasonable margin around the grid to catch boundary placements
+            float gridMargin = spacing * 0.75f; // Allow some flexibility near boundaries
+            
+            // Full grid bounds including boundary gaps
+            float minPos = -gridMargin; // Allow placements slightly before first tile
+            float maxPos = (Cells - 1) * spacing + gridMargin; // Allow placements slightly after last tile
+            
+            bool inBounds = p.x >= minPos && p.x <= maxPos && p.y >= minPos && p.y <= maxPos;
+            
+            if (!inBounds)
+            {
+                UnityEngine.Debug.Log($"[BOUNDS] Position ({p.x:F2},{p.y:F2}) outside bounds [{minPos:F2},{maxPos:F2}]");
+            }
+            
+            return inBounds;
         }
         #endregion
 
         #region Game Manager Integration
-        bool CanPlaceWalls()
+        public bool TryPlaceWall(Vector3 worldPosition)
         {
-            return gameManager != null && 
-                   ((gameManager.currentState == GameState.PlayerTurn && gameManager.playerWallsRemaining > 0) ||
-                    (gameManager.currentState == GameState.OpponentTurn && gameManager.opponentWallsRemaining > 0));
-        }
-        
-        void DecrementWallCount()
-        {
-            if (gameManager.currentState == GameState.PlayerTurn)
-                gameManager.playerWallsRemaining--;
-            else if (gameManager.currentState == GameState.OpponentTurn)
-                gameManager.opponentWallsRemaining--;
-        }
-        
-        int GetCurrentPlayerWallCount()
-        {
-            return gameManager.currentState == GameState.PlayerTurn ? 
-                   gameManager.playerWallsRemaining : gameManager.opponentWallsRemaining;
+            if (!gameManager.CanInitiateWallPlacement()) return false;
+            
+            if (!gameManager.TryStartWallPlacement()) return false;
+            
+            if (TryFindNearestGap(worldPosition, out WallInfo info) && CanPlaceWall(info))
+            {
+                CreateWallVisual(info);
+                OccupyWallPositions(info);
+                OnWallPlaced(info);
+                return true;
+            }
+            
+            // Failed to place wall - complete with failure
+            gameManager.CompleteWallPlacement(false);
+            return false;
         }
         #endregion
 
@@ -724,6 +1083,12 @@ namespace WallChess
         public int GetManagedWallCount() => managedWalls.Count;
         
         public List<GameObject> GetManagedWalls() => new List<GameObject>(managedWalls);
+        
+        // Public method for testing - allows external scripts to set gap occupancy
+        public void SetGapOccupiedForTesting(Orientation orientation, int x, int y, bool occupied)
+        {
+            SetOccupied(orientation, x, y, occupied);
+        }
         
         public void ClearAllWalls()
         {
@@ -750,23 +1115,6 @@ namespace WallChess
                 gridSystem.ClearGrid();
                 
             UnityEngine.Debug.Log("WallManager cleared all walls");
-        }
-        
-        public bool TryPlaceWall(Vector3 worldPosition)
-        {
-            if (!CanPlaceWalls()) return false;
-            
-            if (TryFindNearestGap(worldPosition, out WallInfo info) && CanPlaceWall(info))
-            {
-                CreateWallVisual(info);
-                OccupyWallPositions(info);
-                OnWallPlaced(info);
-                DecrementWallCount();
-                gameManager.EndTurn();
-                return true;
-            }
-            
-            return false;
         }
         
         // Get wall info at specific coordinates
@@ -841,14 +1189,24 @@ namespace WallChess
         {
             if (gameManager == null || Cells <= 0) return;
 
-            // Draw corrected board bounds (gap placement area only)
-            Gizmos.color = Color.white;
-            float minGap = 0.5f * spacing;
-            float maxGap = (Cells - 1.5f) * spacing;
-            Vector3 gapMin = new Vector3(minGap, minGap, 0f);
-            Vector3 gapMax = new Vector3(maxGap, maxGap, 0f);
-            Vector3 gapSize = gapMax - gapMin;
-            Gizmos.DrawWireCube(gapMin + gapSize * 0.5f, gapSize);
+            // Draw CORRECTED board bounds - now includes boundary gaps  
+            Gizmos.color = Color.green;
+            float gridMargin = spacing * 0.75f;
+            float minPos = -gridMargin;
+            float maxPos = (Cells - 1) * spacing + gridMargin;
+            Vector3 boundsMin = new Vector3(minPos, minPos, 0f);
+            Vector3 boundsMax = new Vector3(maxPos, maxPos, 0f);
+            Vector3 boundsSize = boundsMax - boundsMin;
+            Gizmos.DrawWireCube(boundsMin + boundsSize * 0.5f, boundsSize);
+            
+            // Draw old restricted bounds for comparison (in red)
+            Gizmos.color = Color.red;
+            float minGapOld = 0.5f * spacing;
+            float maxGapOld = (Cells - 1.5f) * spacing;
+            Vector3 gapMinOld = new Vector3(minGapOld, minGapOld, 0f);
+            Vector3 gapMaxOld = new Vector3(maxGapOld, maxGapOld, 0f);
+            Vector3 gapSizeOld = gapMaxOld - gapMinOld;
+            Gizmos.DrawWireCube(gapMinOld + gapSizeOld * 0.5f, gapSizeOld);
             
             // Draw tile area for reference
             Gizmos.color = Color.blue;
