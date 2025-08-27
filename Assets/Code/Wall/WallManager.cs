@@ -743,7 +743,7 @@ namespace WallChess
             if (gameManager == null) return false;
             
             // Goal: player needs to reach y=0, opponent needs to reach y=gridSize-1
-            int goalY = isPlayer ? 0 : gameManager.gridSize - 1;
+            int goalY = isPlayer ? gameManager.gridSize - 1 : 0;
             
             Queue<Vector2Int> queue = new Queue<Vector2Int>();
             HashSet<Vector2Int> visited = new HashSet<Vector2Int>();

@@ -231,7 +231,9 @@ namespace WallChess
             
             // Initialize the grid system
             gridSystem.Initialize(gridSettings);
-
+            
+            playerPosition = new Vector2Int(Mathf.FloorToInt((gridSettings.gridSize - 1) / 2), 0); // Bottom center
+            opponentPosition = new Vector2Int(Mathf.FloorToInt((gridSettings.gridSize - 1) / 2), gridSettings.gridSize - 1);
             // Initialize other components
             playerController = gameObject.AddComponent<PlayerControllerV2>();
             wallManager = gameObject.AddComponent<WallManager>();
@@ -244,6 +246,7 @@ namespace WallChess
             wallManager.Initialize(this);
 
             // Set initial player positions as occupied
+            
             gridSystem.SetTileOccupied(playerPosition, true);
             gridSystem.SetTileOccupied(opponentPosition, true);
 
@@ -492,7 +495,7 @@ namespace WallChess
         public bool CheckVictory()
         {
             // Player wins if reaches top row (y = 0)
-            if (playerPosition.y == 0)
+            if (playerPosition.y == gridSize - 1)
             {
                 Debug.Log("Player Wins!");
                 ChangeState(GameState.GameOver);
@@ -500,7 +503,7 @@ namespace WallChess
             }
 
             // Opponent wins if reaches bottom row (y = gridSize - 1)
-            if (opponentPosition.y == gridSize - 1)
+            if (opponentPosition.y == 0)
             {
                 Debug.Log("Opponent Wins!");
                 ChangeState(GameState.GameOver);
