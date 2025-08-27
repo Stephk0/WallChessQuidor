@@ -57,8 +57,9 @@ namespace WallChess
 
         public bool CanMoveAvatar(bool isPlayer)
         {
-            // Use GameManager's new state management
-            return gameManager.CanMovePawn(isPlayer) && gameManager.CanInitiateMove();
+            // Convert bool isPlayer to pawn index for new system
+            int pawnIndex = isPlayer ? 0 : 1;
+            return gameManager.CanMovePawn(pawnIndex) && gameManager.CanInitiateMove();
         }
 
         public Vector2Int GetAvatarPosition(bool isPlayer)

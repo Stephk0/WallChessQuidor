@@ -1,6 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
-using System.Diagnostics;
+// using System.Diagnostics; // Removed to avoid Debug ambiguity
 
 namespace WallChess
 {
@@ -1129,11 +1129,14 @@ namespace WallChess
             // Clear gap arrays
             ClearGapArrays();
             
-            // Reset wall counts
+            // Reset wall counts using new pawn system
             if (gameManager != null)
             {
-                gameManager.playerWallsRemaining = gameManager.wallsPerPlayer;
-                gameManager.opponentWallsRemaining = gameManager.wallsPerPlayer;
+                foreach (var pawn in gameManager.pawns)
+                {
+                    pawn.wallsRemaining = gameManager.wallsPerPlayer;
+                }
+                UnityEngine.Debug.Log($"Reset wall counts to {gameManager.wallsPerPlayer} for all {gameManager.pawns.Count} pawns");
             }
             
             // Sync with GridSystem

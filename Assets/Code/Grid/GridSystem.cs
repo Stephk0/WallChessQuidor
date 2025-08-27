@@ -118,7 +118,7 @@ namespace WallChess
 
             InitializeArrays();
             CreateUICanvas();
-            //CreateGridTiles();
+            CreateGridTiles();
             
             Debug.Log($"GridSystem initialized: {gridSettings.gridSize}x{gridSettings.gridSize}, spacing={gridSettings.TileSpacing}");
         }
