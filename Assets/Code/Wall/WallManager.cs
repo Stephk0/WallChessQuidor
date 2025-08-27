@@ -551,19 +551,45 @@ namespace WallChess
         {
             if (o == Orientation.Horizontal)
             {
-                // Horizontal walls: x spans 2 gaps, so x can be [0..HCols-2] to ensure x+1 is valid
+                // Horizontal walls: spans 2 gaps horizontally (x and x+1)
+                // Must ensure both x and x+1 are within valid bounds AND within board
+                // For a 9x9 board, valid horizontal wall x positions are [0, 6] 
+                // (so x+1 spans [1, 7], keeping the wall within the 8 interior columns)
+                int maxX = Mathf.Min(HCols - 2, Cells - 2); // Ensure wall doesn't extend beyond board
+                x = Mathf.Clamp(x, 0, maxX);
+                
                 // y must be within the gap rows between tiles [0..HRows-1]
-                x = Mathf.Clamp(x, 0, HCols - 2);  
                 y = Mathf.Clamp(y, 0, HRows - 1);
-                return x >= 0 && x + 1 < HCols && y >= 0 && y < HRows;
+                
+                bool valid = x >= 0 && x + 1 < HCols && y >= 0 && y < HRows && x + 1 <= Cells - 1;
+                
+                if (!valid)
+                {
+                    UnityEngine.Debug.Log($"[CLAMP] Horizontal wall ({x},{y}) invalid: maxX={maxX}, HCols={HCols}, HRows={HRows}");
+                }
+                
+                return valid;
             }
             else
             {
-                // Vertical walls: y spans 2 gaps, so y can be [0..VRows-2] to ensure y+1 is valid
+                // Vertical walls: spans 2 gaps vertically (y and y+1)
+                // Must ensure both y and y+1 are within valid bounds AND within board
+                // For a 9x9 board, valid vertical wall y positions are [0, 6]
+                // (so y+1 spans [1, 7], keeping the wall within the 8 interior rows)
+                int maxY = Mathf.Min(VRows - 2, Cells - 2); // Ensure wall doesn't extend beyond board
+                y = Mathf.Clamp(y, 0, maxY);
+                
                 // x must be within the gap columns between tiles [0..VCols-1]
                 x = Mathf.Clamp(x, 0, VCols - 1);
-                y = Mathf.Clamp(y, 0, VRows - 2);
-                return x >= 0 && x < VCols && y >= 0 && y + 1 < VRows;
+                
+                bool valid = x >= 0 && x < VCols && y >= 0 && y + 1 < VRows && y + 1 <= Cells - 1;
+                
+                if (!valid)
+                {
+                    UnityEngine.Debug.Log($"[CLAMP] Vertical wall ({x},{y}) invalid: maxY={maxY}, VCols={VCols}, VRows={VRows}");
+                }
+                
+                return valid;
             }
         }
 
@@ -1139,10 +1165,11 @@ namespace WallChess
         {
             List<WallInfo> validPositions = new List<WallInfo>();
             
-            // Check all horizontal wall positions (corrected bounds)
+            // Check all horizontal wall positions (corrected bounds to prevent hanging outside board)
+            int maxHorizontalX = Mathf.Min(HCols - 2, Cells - 2); // Ensure x+1 stays within board
             for (int y = 0; y < HRows; y++)  // Only in gap rows between tiles
             {
-                for (int x = 0; x < HCols - 1; x++)  // Ensure wall doesn't extend outside
+                for (int x = 0; x <= maxHorizontalX; x++)  // Use corrected max bounds
                 {
                     WallInfo hWall = CreateWallInfo(Orientation.Horizontal, x, y, GapCenter(Orientation.Horizontal, x, y));
                     if (CanPlaceWall(hWall))
@@ -1150,10 +1177,11 @@ namespace WallChess
                 }
             }
             
-            // Check all vertical wall positions (corrected bounds)
+            // Check all vertical wall positions (corrected bounds to prevent hanging outside board)
+            int maxVerticalY = Mathf.Min(VRows - 2, Cells - 2); // Ensure y+1 stays within board
             for (int x = 0; x < VCols; x++)  // Only in gap columns between tiles
             {
-                for (int y = 0; y < VRows - 1; y++)  // Ensure wall doesn't extend outside
+                for (int y = 0; y <= maxVerticalY; y++)  // Use corrected max bounds
                 {
                     WallInfo vWall = CreateWallInfo(Orientation.Vertical, x, y, GapCenter(Orientation.Vertical, x, y));
                     if (CanPlaceWall(vWall))
@@ -1218,9 +1246,12 @@ namespace WallChess
             if (horizontalGaps == null || verticalGaps == null) return;
 
             // Draw gap centers and occupancy with corrected loop bounds
-            for (int y = 0; y < HRows; y++)  // Fixed: use HRows instead of Cells
+            int maxHorizontalX = Mathf.Min(HCols - 2, Cells - 2);
+            int maxVerticalY = Mathf.Min(VRows - 2, Cells - 2);
+            
+            for (int y = 0; y < HRows; y++)  // Fixed: use HRows
             {
-                for (int x = 0; x < HCols - 1; x++)  // Fixed: use HCols-1 to avoid out-of-bounds
+                for (int x = 0; x <= maxHorizontalX; x++)  // Use corrected bounds
                 {
                     // Draw horizontal gaps if within valid range
                     if (x < HCols && y < HRows)
@@ -1229,13 +1260,21 @@ namespace WallChess
                         bool hOccupied = (x + 1 < HCols && horizontalGaps[x, y] && horizontalGaps[x + 1, y]);
                         Gizmos.color = hOccupied ? Color.red : Color.gray;
                         Gizmos.DrawCube(cH + Vector3.forward * -0.05f, new Vector3(0.05f, 0.05f, 0.01f));
+                        
+                        // Draw wall extent preview
+                        if (!hOccupied)
+                        {
+                            Gizmos.color = Color.white;
+                            float wallLength = gameManager.tileSize * 2f + gameManager.tileGap;
+                            Gizmos.DrawWireCube(cH, new Vector3(wallLength, 0.02f, 0.02f));
+                        }
                     }
                 }
             }
             
-            for (int y = 0; y < VRows - 1; y++)  // Fixed: use VRows-1 to avoid out-of-bounds
+            for (int x = 0; x < VCols; x++)  // Fixed: use VCols
             {
-                for (int x = 0; x < VCols; x++)  // Fixed: use VCols instead of Cells
+                for (int y = 0; y <= maxVerticalY; y++)  // Use corrected bounds
                 {
                     // Draw vertical gaps if within valid range
                     if (x < VCols && y < VRows)
@@ -1244,6 +1283,14 @@ namespace WallChess
                         bool vOccupied = (y + 1 < VRows && verticalGaps[x, y] && verticalGaps[x, y + 1]);
                         Gizmos.color = vOccupied ? Color.red : Color.gray;
                         Gizmos.DrawSphere(cV, 0.03f);
+                        
+                        // Draw wall extent preview
+                        if (!vOccupied)
+                        {
+                            Gizmos.color = Color.white;
+                            float wallLength = gameManager.tileSize * 2f + gameManager.tileGap;
+                            Gizmos.DrawWireCube(cV, new Vector3(0.02f, wallLength, 0.02f));
+                        }
                     }
                 }
             }
