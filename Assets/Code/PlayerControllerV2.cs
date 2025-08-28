@@ -178,9 +178,12 @@ namespace WallChess
             // 1. Wall starts at gapX: occupies (gapX, gapY) and (gapX+1, gapY)
             // 2. Wall starts at gapX-1: occupies (gapX-1, gapY) and (gapX, gapY)
             
+            WallState wallState = wallManager.GetWallState();
+            if (wallState == null) return false;
+            
             // Check possibility 1: Wall starts at gapX
-            bool wall1Left = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX, gapY);
-            bool wall1Right = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX + 1, gapY);
+            bool wall1Left = wallState.IsOccupied(WallState.Orientation.Horizontal, gapX, gapY);
+            bool wall1Right = wallState.IsOccupied(WallState.Orientation.Horizontal, gapX + 1, gapY);
             if (wall1Left && wall1Right)
             {
                 if (enableDebugLogs)
@@ -193,8 +196,8 @@ namespace WallChess
             // Check possibility 2: Wall starts at gapX-1  
             if (gapX - 1 >= 0)
             {
-                bool wall2Left = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX - 1, gapY);
-                bool wall2Right = wallManager.IsGapOccupied(WallManager.Orientation.Horizontal, gapX, gapY);
+                bool wall2Left = wallState.IsOccupied(WallState.Orientation.Horizontal, gapX - 1, gapY);
+                bool wall2Right = wallState.IsOccupied(WallState.Orientation.Horizontal, gapX, gapY);
                 if (wall2Left && wall2Right)
                 {
                     if (enableDebugLogs)
@@ -218,13 +221,16 @@ namespace WallChess
             // Check bounds first
             if (gapX < 0 || gapY < 0) return false;
             
+            WallState wallState = wallManager.GetWallState();
+            if (wallState == null) return false;
+            
             // A vertical wall can block movement at gapY in two ways:
             // 1. Wall starts at gapY: occupies (gapX, gapY) and (gapX, gapY+1)
             // 2. Wall starts at gapY-1: occupies (gapX, gapY-1) and (gapX, gapY)
             
             // Check possibility 1: Wall starts at gapY
-            bool wall1Bottom = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY);
-            bool wall1Top = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY + 1);
+            bool wall1Bottom = wallState.IsOccupied(WallState.Orientation.Vertical, gapX, gapY);
+            bool wall1Top = wallState.IsOccupied(WallState.Orientation.Vertical, gapX, gapY + 1);
             if (wall1Bottom && wall1Top)
             {
                 if (enableDebugLogs)
@@ -237,8 +243,8 @@ namespace WallChess
             // Check possibility 2: Wall starts at gapY-1
             if (gapY - 1 >= 0)
             {
-                bool wall2Bottom = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY - 1);
-                bool wall2Top = wallManager.IsGapOccupied(WallManager.Orientation.Vertical, gapX, gapY);
+                bool wall2Bottom = wallState.IsOccupied(WallState.Orientation.Vertical, gapX, gapY - 1);
+                bool wall2Top = wallState.IsOccupied(WallState.Orientation.Vertical, gapX, gapY);
                 if (wall2Bottom && wall2Top)
                 {
                     if (enableDebugLogs)

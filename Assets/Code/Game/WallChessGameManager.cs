@@ -154,7 +154,7 @@ namespace WallChess
             wallManager = gameObject.AddComponent<WallManager>();
 
             playerController.Initialize(this);
-            wallManager.Initialize(this);
+            //wallManager.Initialize(this);
 
             // Set up initial tile occupancy
             foreach (var pawn in pawns)
