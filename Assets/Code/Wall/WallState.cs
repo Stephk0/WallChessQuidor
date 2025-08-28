@@ -1,11 +1,13 @@
 using UnityEngine;
 using System;
 using System.Collections.Generic;
+using WallChess.Grid;
 
 namespace WallChess
 {
     /// <summary>
     /// Holds occupancy arrays and exposes helpers for gaps & walls.
+    /// Now uses GridCoordinateConverter for proper alignment handling.
     /// </summary>
     public class WallState
     {
@@ -20,6 +22,8 @@ namespace WallChess
 
         public readonly float spacing;
         public readonly float hOffX = 0.5f, hOffY = 0.5f, vOffX = 0.5f, vOffY = 0.5f;
+        
+        private readonly GridCoordinateConverter coordinateConverter;
 
         private bool[,] h; // [HCols,HRows]
         private bool[,] v; // [VCols,VRows]
@@ -27,10 +31,11 @@ namespace WallChess
         private readonly List<GameObject> managed = new List<GameObject>(32);
         public IReadOnlyList<GameObject> ManagedWalls => managed;
 
-        public WallState(Func<int> getCells, float spacing)
+        public WallState(Func<int> getCells, float spacing, GridCoordinateConverter coordinateConverter = null)
         {
             this.getCells = getCells;
             this.spacing = spacing;
+            this.coordinateConverter = coordinateConverter;
             Allocate();
         }
 
@@ -97,10 +102,21 @@ namespace WallChess
 
         public Vector3 GapCenter(Orientation o, int x, int y)
         {
+            Vector3 basePos;
+            
             if (o == Orientation.Horizontal)
-                return new Vector3((x + hOffX) * spacing, (y + hOffY) * spacing, 0f);
+                basePos = new Vector3((x + hOffX) * spacing, (y + hOffY) * spacing, 0f);
             else
-                return new Vector3((x + vOffX) * spacing, (y + vOffY) * spacing, 0f);
+                basePos = new Vector3((x + vOffX) * spacing, (y + vOffY) * spacing, 0f);
+
+            // Apply alignment offset if coordinate converter is available
+            if (coordinateConverter != null)
+            {
+                Vector3 alignmentOffset = coordinateConverter.GetAlignmentOffset();
+                return basePos + alignmentOffset;
+            }
+
+            return basePos;
         }
 
         public (int maxHX, int maxVY) MaxExtentsWithinBoard()
@@ -110,6 +126,37 @@ namespace WallChess
             int maxVY = Math.Min(VRows - 2, Cells - 2);
             return (maxHX, maxVY);
         }
+
+        /// <summary>
+        /// Converts world position to gap coordinates, accounting for grid alignment
+        /// </summary>
+        public Vector2Int WorldToGapPosition(Vector3 worldPos, Orientation orientation)
+        {
+            if (coordinateConverter != null)
+            {
+                // Remove alignment offset first
+                Vector3 alignmentOffset = coordinateConverter.GetAlignmentOffset();
+                worldPos -= alignmentOffset;
+            }
+
+            if (orientation == Orientation.Horizontal)
+            {
+                float fx = worldPos.x / spacing - hOffX;
+                float fy = worldPos.y / spacing - hOffY;
+                return new Vector2Int(Mathf.RoundToInt(fx), Mathf.RoundToInt(fy));
+            }
+            else
+            {
+                float fx = worldPos.x / spacing - vOffX;
+                float fy = worldPos.y / spacing - vOffY;
+                return new Vector2Int(Mathf.RoundToInt(fx), Mathf.RoundToInt(fy));
+            }
+        }
+
+        /// <summary>
+        /// Gets the coordinate converter for grid alignment calculations
+        /// </summary>
+        public GridCoordinateConverter GetCoordinateConverter() => coordinateConverter;
 
         public static void SafeDestroy(UnityEngine.Object obj)
         {

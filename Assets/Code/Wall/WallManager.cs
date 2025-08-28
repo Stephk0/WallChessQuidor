@@ -1,10 +1,12 @@
 using UnityEngine;
 using System.Collections.Generic;
+using WallChess.Grid;
 
 namespace WallChess
 {
     /// <summary>
     /// Thin orchestrator MonoBehaviour that wires together subsystems.
+    /// Now properly integrates with GridSystem alignment.
     /// </summary>
     public class WallManager : MonoBehaviour
     {
@@ -25,21 +27,37 @@ namespace WallChess
 
         private WallChessGameManager gameManager;
         private GridSystem grid;
+        private GridCoordinateConverter coordinateConverter;
         private WallState state;
         private GapDetector gaps;
         private WallValidator validator;
         private WallVisuals visuals;
         private WallPlacementController placement;
 
-        void Awake()
+        public void Initialize(WallChessGameManager gm) // force recompile
         {
-            gameManager = FindObjectOfType<WallChessGameManager>();
+            gameManager = gm;
             grid = gameManager != null ? gameManager.GetGridSystem() : null;
 
-            float spacing = (gameManager?.tileSize ?? 1f) + (gameManager?.tileGap ?? 0.2f);
+            if (grid == null)
+            {
+                Debug.LogError("WallManager: GridSystem not found! WallManager requires GridSystem to be initialized first.");
+                return;
+            }
+
+            // Get the coordinate converter from the grid system to respect alignment
+            coordinateConverter = GetCoordinateConverterFromGrid();
+            if (coordinateConverter == null)
+            {
+                Debug.LogError("WallManager: Could not get coordinate converter from GridSystem!");
+                return;
+            }
+
+            float spacing = grid.GetTileSpacing();
             state = new WallState(
                 () => gameManager?.gridSize ?? 8,
-                spacing
+                spacing,
+                coordinateConverter
             );
 
             gaps = new GapDetector(state, laneSnapMargin, unlockMultiplier, gapSnapMargin);
@@ -49,8 +67,30 @@ namespace WallChess
             placement = new WallPlacementController(gameManager, state, gaps, validator, visuals, placementPlaneZ);
         }
 
+        /// <summary>
+        /// Gets the coordinate converter from the grid system using reflection
+        /// since GridCoordinateConverter is private in GridSystem
+        /// </summary>
+        private GridCoordinateConverter GetCoordinateConverterFromGrid()
+        {
+            var field = typeof(GridSystem).GetField("coordinateConverter", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            
+            if (field != null)
+            {
+                return (GridCoordinateConverter)field.GetValue(grid);
+            }
+
+            // Fallback: create our own converter using grid settings
+            var settings = grid.GetGridSettings();
+            var alignment = grid.GetGridAlignment();
+            return new GridCoordinateConverter(settings.TileSpacing, settings.gridSize, alignment);
+        }
+
         void Update()
         {
+            if (coordinateConverter == null) return;
+
             // debug hooks kept from original
             if (Input.GetKeyDown(KeyCode.Y)) placement.RunAutomaticWallTest();
             if (Input.GetKeyDown(KeyCode.T)) placement.TestWallBlocking();

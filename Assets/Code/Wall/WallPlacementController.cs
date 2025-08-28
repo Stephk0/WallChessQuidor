@@ -58,6 +58,8 @@ namespace WallChess
             if (gaps.TryFind(worldPosition, gm, out var info) && validator.CanPlace(info))
             {
                 Commit(info);
+                // FIXED: Notify game manager that wall placement is complete
+                gm.CompleteWallPlacement(true);
                 return true;
             }
             gm.CompleteWallPlacement(false);
@@ -122,10 +124,8 @@ namespace WallChess
 
         bool IsWithinBounds(Vector3 p)
         {
-            float gridMargin = s.spacing * 0.75f;
-            float min = -gridMargin;
-            float max = (s.Cells - 1) * s.spacing + gridMargin;
-            return p.x >= min && p.x <= max && p.y >= min && p.y <= max;
+            // Use the grid system's bounds checking method for proper alignment handling
+            return gm?.GetGridSystem()?.IsWithinGridBounds(p) ?? false;
         }
 
         // --- Debug harness preserved from original ---

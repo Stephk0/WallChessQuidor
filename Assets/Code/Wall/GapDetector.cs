@@ -1,13 +1,16 @@
 using UnityEngine;
+using WallChess.Grid;
 
 namespace WallChess
 {
     /// <summary>
     /// Computes nearest valid gap and handles lane-based orientation locking.
+    /// Now properly handles grid alignment through GridCoordinateConverter.
     /// </summary>
     public class GapDetector
     {
         private readonly WallState s;
+        private readonly GridCoordinateConverter coordinateConverter;
         private readonly float laneSnap;
         private readonly float unlockMul;
         private readonly float margin;
@@ -16,13 +19,27 @@ namespace WallChess
         public GapDetector(WallState state, float laneSnapMargin, float unlockMultiplier, float tieMargin)
         {
             s = state;
+            this.coordinateConverter = state.GetCoordinateConverter();
             laneSnap = laneSnapMargin;
             unlockMul = unlockMultiplier;
             margin = tieMargin;
         }
 
-        float NearestHLane(float y) => (Mathf.Round(y / s.spacing - s.hOffY) + s.hOffY) * s.spacing;
-        float NearestVLane(float x) => (Mathf.Round(x / s.spacing - s.vOffX) + s.vOffX) * s.spacing;
+        float NearestHLane(float y)
+        {
+            Vector3 alignmentOffset = coordinateConverter?.GetAlignmentOffset() ?? Vector3.zero;
+            float adjustedY = y - alignmentOffset.y;
+            float laneY = (Mathf.Round(adjustedY / s.spacing - s.hOffY) + s.hOffY) * s.spacing;
+            return laneY + alignmentOffset.y;
+        }
+
+        float NearestVLane(float x)
+        {
+            Vector3 alignmentOffset = coordinateConverter?.GetAlignmentOffset() ?? Vector3.zero;
+            float adjustedX = x - alignmentOffset.x;
+            float laneX = (Mathf.Round(adjustedX / s.spacing - s.vOffX) + s.vOffX) * s.spacing;
+            return laneX + alignmentOffset.x;
+        }
 
         public struct WallInfo
         {
@@ -103,17 +120,21 @@ namespace WallChess
 
         void Index(Vector3 p, WallState.Orientation o, bool floor, out int gx, out int gy)
         {
+            // Account for alignment offset
+            Vector3 alignmentOffset = coordinateConverter?.GetAlignmentOffset() ?? Vector3.zero;
+            Vector3 adjustedPos = p - alignmentOffset;
+
             if (o == WallState.Orientation.Horizontal)
             {
-                float fx = p.x / s.spacing - s.hOffX;
-                float fy = p.y / s.spacing - s.hOffY;
+                float fx = adjustedPos.x / s.spacing - s.hOffX;
+                float fy = adjustedPos.y / s.spacing - s.hOffY;
                 gx = floor ? Mathf.FloorToInt(fx) : Mathf.RoundToInt(fx);
                 gy = floor ? Mathf.FloorToInt(fy) : Mathf.RoundToInt(fy);
             }
             else
             {
-                float fx = p.x / s.spacing - s.vOffX;
-                float fy = p.y / s.spacing - s.vOffY;
+                float fx = adjustedPos.x / s.spacing - s.vOffX;
+                float fy = adjustedPos.y / s.spacing - s.vOffY;
                 gx = floor ? Mathf.FloorToInt(fx) : Mathf.RoundToInt(fx);
                 gy = floor ? Mathf.FloorToInt(fy) : Mathf.RoundToInt(fy);
             }

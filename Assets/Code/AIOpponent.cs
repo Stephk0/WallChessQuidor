@@ -44,7 +44,7 @@ namespace WallChess
 
         void Update()
         {
-            if (!opponentIsAI || gm == null || gm.GetCurrentState() == GameState.GameOver) return;
+            if (!opponentIsAI || gm is null || gm.GetCurrentState() == GameState.GameOver) return;
 
             if (!isThinking &&
                 gm.IsOpponentTurn() &&
