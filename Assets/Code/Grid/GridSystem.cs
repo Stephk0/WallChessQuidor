@@ -29,6 +29,28 @@ namespace WallChess
         }
 
         public enum Orientation { Horizontal, Vertical }
+        public enum CellType { Tile, HorizontalGap, VerticalGap, Intersection }
+
+        [System.Serializable]
+        public class GridCell
+        {
+            public CellType cellType;
+            public bool isOccupied;
+            public GameObject visualObject;
+            public Vector2Int gridPos;
+            
+            public bool IsTile => cellType == CellType.Tile;
+            public bool IsGap => cellType == CellType.HorizontalGap || cellType == CellType.VerticalGap;
+            public bool IsIntersection => cellType == CellType.Intersection;
+            
+            public GridCell(CellType type, Vector2Int pos)
+            {
+                cellType = type;
+                gridPos = pos;
+                isOccupied = false;
+                visualObject = null;
+            }
+        }
 
         [System.Serializable]
         public struct WallInfo
@@ -47,7 +69,6 @@ namespace WallChess
                 this.worldPosition = worldPosition;
                 this.scale = scale;
             }
-
         }
 
         #region Settings
@@ -72,9 +93,9 @@ namespace WallChess
 
         #region Components
         private GridCoordinateConverter coordinateConverter;
-        private GridTileManager tileManager;
-        private GridWallManager wallManager;
         private GridUIManager uiManager;
+        private GridCell[,] unifiedGrid;
+        private int fullGridSize; // Will be gridSize * 2 + 1 to accommodate tiles and gaps
         #endregion
 
         #region Events
@@ -100,11 +121,14 @@ namespace WallChess
                 };
             }
 
+            // Full grid includes tiles and gaps: tiles at even indices, gaps at odd
+            fullGridSize = gridSettings.gridSize * 2 + 1;
+            
             InitializeComponents();
             CreateGrid();
             
-            Debug.Log($"GridSystem initialized: {gridSettings.gridSize}x{gridSettings.gridSize}, " +
-                     $"spacing={gridSettings.TileSpacing}, alignment={gridAlignment.horizontal}");
+            Debug.Log($"GridSystem initialized: {gridSettings.gridSize}x{gridSettings.gridSize} tiles, " +
+                     $"unified grid: {fullGridSize}x{fullGridSize}, spacing={gridSettings.TileSpacing}");
         }
 
         private void InitializeComponents()
@@ -113,21 +137,6 @@ namespace WallChess
                 gridSettings.TileSpacing, 
                 gridSettings.gridSize, 
                 gridAlignment
-            );
-
-            tileManager = new GridTileManager(
-                coordinateConverter,
-                this.transform,
-                gridSettings.tileSize,
-                tileMaterial,
-                lightTileColor,
-                darkTileColor
-            );
-
-            wallManager = new GridWallManager(
-                coordinateConverter,
-                gridSettings,
-                gapConfig
             );
 
             uiManager = new GridUIManager(
@@ -139,15 +148,86 @@ namespace WallChess
                 labelColor
             );
 
-            // Subscribe to events
-            tileManager.OnTileOccupancyChanged += (pos, occupied) => OnTileOccupancyChanged?.Invoke(pos, occupied);
-            wallManager.OnWallPlaced += (wallInfo) => OnWallPlaced?.Invoke(wallInfo);
+            // Initialize unified grid
+            InitializeUnifiedGrid();
+        }
+        
+        private void InitializeUnifiedGrid()
+        {
+            unifiedGrid = new GridCell[fullGridSize, fullGridSize];
+            
+            for (int x = 0; x < fullGridSize; x++)
+            {
+                for (int y = 0; y < fullGridSize; y++)
+                {
+                    CellType cellType = DetermineCellType(x, y);
+                    unifiedGrid[x, y] = new GridCell(cellType, new Vector2Int(x, y));
+                }
+            }
+        }
+        
+        private CellType DetermineCellType(int x, int y)
+        {
+            bool xIsEven = x % 2 == 0;
+            bool yIsEven = y % 2 == 0;
+            
+            if (xIsEven && yIsEven)
+                return CellType.Tile;
+            else if (!xIsEven && yIsEven)
+                return CellType.VerticalGap;
+            else if (xIsEven && !yIsEven)
+                return CellType.HorizontalGap;
+            else
+                return CellType.Intersection;
         }
 
         private void CreateGrid()
         {
-            tileManager.CreateAllTiles();
+            CreateAllTiles();
             //uiManager.CreateAllTileLabels();
+        }
+        
+        private void CreateAllTiles()
+        {
+            // Only create tiles up to gridSize count (not fullGridSize)
+            // Tiles are at positions 0, 2, 4, 6, 8, 10, 12, 14, 16 for a 9x9 grid
+            for (int x = 0; x < gridSettings.gridSize * 2; x += 2)
+            {
+                for (int y = 0; y < gridSettings.gridSize * 2; y += 2)
+                {
+                    CreateTileAt(x, y);
+                }
+            }
+        }
+        
+        private void CreateTileAt(int unifiedX, int unifiedY)
+        {
+            if (unifiedGrid[unifiedX, unifiedY].cellType != CellType.Tile) return;
+            
+            // Convert unified grid position to actual tile position
+            Vector2Int tilePos = UnifiedToTilePosition(new Vector2Int(unifiedX, unifiedY));
+            Vector3 worldPosition = coordinateConverter.GridToWorldPosition(tilePos);
+            
+            GameObject tile = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            tile.name = $"Tile_{tilePos.x}_{tilePos.y}";
+            tile.transform.position = worldPosition;
+            tile.transform.localScale = Vector3.one * gridSettings.tileSize;
+            tile.transform.parent = transform;
+            
+            Renderer tileRenderer = tile.GetComponent<Renderer>();
+            
+            if (tileMaterial != null)
+                tileRenderer.material = tileMaterial;
+            else
+                tileRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            
+            tileRenderer.material.color = (tilePos.x + tilePos.y) % 2 == 0 ? 
+                lightTileColor : darkTileColor;
+            
+            if (tile.GetComponent<Collider>() != null)
+                DestroyImmediate(tile.GetComponent<Collider>());
+            
+            unifiedGrid[unifiedX, unifiedY].visualObject = tile;
         }
         #endregion
 
@@ -179,48 +259,92 @@ namespace WallChess
         {
             return coordinateConverter.IsWithinGridBounds(worldPos);
         }
+        
+        // Convert between tile coordinates (0-8) and unified grid coordinates (0-18)
+        public Vector2Int TileToUnifiedPosition(Vector2Int tilePos)
+        {
+            return new Vector2Int(tilePos.x * 2, tilePos.y * 2);
+        }
+        
+        public Vector2Int UnifiedToTilePosition(Vector2Int unifiedPos)
+        {
+            return new Vector2Int(unifiedPos.x / 2, unifiedPos.y / 2);
+        }
+        
+        public bool IsValidUnifiedPosition(Vector2Int unifiedPos)
+        {
+            return unifiedPos.x >= 0 && unifiedPos.x < fullGridSize &&
+                   unifiedPos.y >= 0 && unifiedPos.y < fullGridSize;
+        }
         #endregion
 
         #region Public API - Tile Management
-        public bool IsTileOccupied(Vector2Int gridPos)
+        public bool IsTileOccupied(Vector2Int tilePos)
         {
-            return tileManager.IsTileOccupied(gridPos);
+            Vector2Int unifiedPos = TileToUnifiedPosition(tilePos);
+            if (!IsValidUnifiedPosition(unifiedPos)) return true;
+            return unifiedGrid[unifiedPos.x, unifiedPos.y].isOccupied;
         }
 
-        public void SetTileOccupied(Vector2Int gridPos, bool occupied)
+        public void SetTileOccupied(Vector2Int tilePos, bool occupied)
         {
-            tileManager.SetTileOccupied(gridPos, occupied);
+            Vector2Int unifiedPos = TileToUnifiedPosition(tilePos);
+            if (!IsValidUnifiedPosition(unifiedPos)) return;
+            
+            unifiedGrid[unifiedPos.x, unifiedPos.y].isOccupied = occupied;
+            OnTileOccupancyChanged?.Invoke(tilePos, occupied);
             
             if (showTileLabels)
             {
-                string labelText = occupied ? $"{gridPos.x},{gridPos.y}\n[OCCUPIED]" : $"{gridPos.x},{gridPos.y}";
-                uiManager.UpdateTileLabel(gridPos.x, gridPos.y, labelText);
+                string labelText = occupied ? $"{tilePos.x},{tilePos.y}\n[OCCUPIED]" : $"{tilePos.x},{tilePos.y}";
+                uiManager.UpdateTileLabel(tilePos.x, tilePos.y, labelText);
             }
         }
 
-        public GameObject GetTile(Vector2Int gridPos)
+        public GameObject GetTile(Vector2Int tilePos)
         {
-            return tileManager.GetTile(gridPos);
+            Vector2Int unifiedPos = TileToUnifiedPosition(tilePos);
+            if (!IsValidUnifiedPosition(unifiedPos)) return null;
+            return unifiedGrid[unifiedPos.x, unifiedPos.y].visualObject;
         }
 
-        public Vector3 GetTileCenter(Vector2Int gridPos)
+        public Vector3 GetTileCenter(Vector2Int tilePos)
         {
-            return tileManager.GetTileCenter(gridPos);
+            GameObject tile = GetTile(tilePos);
+            return tile != null ? tile.transform.position : Vector3.zero;
         }
 
-        public List<Vector2Int> GetValidMoves(Vector2Int currentPos)
+        public List<Vector2Int> GetValidMoves(Vector2Int currentTilePos)
         {
-            List<Vector2Int> adjacentPositions = tileManager.GetValidAdjacentPositions(currentPos);
             List<Vector2Int> validMoves = new List<Vector2Int>();
-
-            foreach (Vector2Int pos in adjacentPositions)
+            Vector2Int currentUnified = TileToUnifiedPosition(currentTilePos);
+            
+            // Check all 4 directions (pawns move 2 cells in unified grid)
+            Vector2Int[] directions = {
+                new Vector2Int(0, 2),  // Up
+                new Vector2Int(0, -2), // Down
+                new Vector2Int(2, 0),  // Right
+                new Vector2Int(-2, 0)  // Left
+            };
+            
+            foreach (Vector2Int dir in directions)
             {
-                if (!wallManager.IsMovementBlockedByWalls(currentPos, pos))
+                Vector2Int targetUnified = currentUnified + dir;
+                Vector2Int gapUnified = currentUnified + (dir / 2); // Gap between current and target
+                
+                // Check if target is valid tile and not occupied
+                if (IsValidUnifiedPosition(targetUnified) && 
+                    unifiedGrid[targetUnified.x, targetUnified.y].IsTile &&
+                    !unifiedGrid[targetUnified.x, targetUnified.y].isOccupied)
                 {
-                    validMoves.Add(pos);
+                    // Check if gap is not blocked by wall
+                    if (!unifiedGrid[gapUnified.x, gapUnified.y].isOccupied)
+                    {
+                        validMoves.Add(UnifiedToTilePosition(targetUnified));
+                    }
                 }
             }
-
+            
             return validMoves;
         }
         #endregion
@@ -228,17 +352,72 @@ namespace WallChess
         #region Public API - Wall Management
         public bool IsGapOccupied(Orientation orientation, int x, int y)
         {
-            return wallManager.IsGapOccupied(orientation, x, y);
+            // Convert wall coordinates to unified grid position
+            Vector2Int unifiedPos = WallToUnifiedPosition(orientation, x, y);
+            if (!IsValidUnifiedPosition(unifiedPos)) return true;
+            return unifiedGrid[unifiedPos.x, unifiedPos.y].isOccupied;
         }
 
         public bool CanPlaceWall(Orientation orientation, int x, int y)
         {
-            return wallManager.CanPlaceWall(orientation, x, y);
+            // Wall occupies 2 consecutive gaps
+            if (orientation == Orientation.Horizontal)
+            {
+                // Check both horizontal gaps
+                Vector2Int gap1 = new Vector2Int(x * 2, y * 2 + 1);
+                Vector2Int gap2 = new Vector2Int(x * 2 + 2, y * 2 + 1);
+                
+                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2))
+                    return false;
+                    
+                return !unifiedGrid[gap1.x, gap1.y].isOccupied && 
+                       !unifiedGrid[gap2.x, gap2.y].isOccupied;
+            }
+            else // Vertical
+            {
+                // Check both vertical gaps
+                Vector2Int gap1 = new Vector2Int(x * 2 + 1, y * 2);
+                Vector2Int gap2 = new Vector2Int(x * 2 + 1, y * 2 + 2);
+                
+                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2))
+                    return false;
+                    
+                return !unifiedGrid[gap1.x, gap1.y].isOccupied && 
+                       !unifiedGrid[gap2.x, gap2.y].isOccupied;
+            }
         }
 
         public bool PlaceWall(WallInfo wallInfo)
         {
-            return wallManager.PlaceWall(wallInfo);
+            if (!CanPlaceWall(wallInfo.orientation, wallInfo.x, wallInfo.y))
+                return false;
+            
+            // Mark gaps as occupied
+            if (wallInfo.orientation == Orientation.Horizontal)
+            {
+                Vector2Int gap1 = new Vector2Int(wallInfo.x * 2, wallInfo.y * 2 + 1);
+                Vector2Int gap2 = new Vector2Int(wallInfo.x * 2 + 2, wallInfo.y * 2 + 1);
+                unifiedGrid[gap1.x, gap1.y].isOccupied = true;
+                unifiedGrid[gap2.x, gap2.y].isOccupied = true;
+            }
+            else // Vertical
+            {
+                Vector2Int gap1 = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2);
+                Vector2Int gap2 = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 2);
+                unifiedGrid[gap1.x, gap1.y].isOccupied = true;
+                unifiedGrid[gap2.x, gap2.y].isOccupied = true;
+            }
+            
+            OnWallPlaced?.Invoke(wallInfo);
+            return true;
+        }
+        
+        private Vector2Int WallToUnifiedPosition(Orientation orientation, int x, int y)
+        {
+            if (orientation == Orientation.Horizontal)
+                return new Vector2Int(x * 2, y * 2 + 1);
+            else
+                return new Vector2Int(x * 2 + 1, y * 2);
         }
         #endregion
 
@@ -258,8 +437,15 @@ namespace WallChess
         #region Public API - Utility
         public void ClearGrid()
         {
-            tileManager.ClearOccupancy();
-            wallManager.ClearWalls();
+            // Clear all occupancy but keep visual objects
+            for (int x = 0; x < fullGridSize; x++)
+            {
+                for (int y = 0; y < fullGridSize; y++)
+                {
+                    if (unifiedGrid[x, y] != null)
+                        unifiedGrid[x, y].isOccupied = false;
+                }
+            }
             OnGridCleared?.Invoke();
         }
 
@@ -281,8 +467,39 @@ namespace WallChess
 
         private void DestroyExistingGrid()
         {
-            tileManager?.DestroyAllTiles();
+            // Destroy all visual objects in unified grid
+            if (unifiedGrid != null)
+            {
+                for (int x = 0; x < fullGridSize; x++)
+                {
+                    for (int y = 0; y < fullGridSize; y++)
+                    {
+                        if (unifiedGrid[x, y]?.visualObject != null)
+                            DestroyImmediate(unifiedGrid[x, y].visualObject);
+                    }
+                }
+            }
+            
             uiManager?.DestroyAllLabels();
+        }
+        
+        // Get cell from unified grid
+        public GridCell GetCell(Vector2Int unifiedPos)
+        {
+            if (!IsValidUnifiedPosition(unifiedPos)) return null;
+            return unifiedGrid[unifiedPos.x, unifiedPos.y];
+        }
+        
+        // Check if path exists using A* on unified grid
+        public bool PathExists(Vector2Int fromTile, Vector2Int toTile)
+        {
+            return GridPathfinder.PathExists(this, fromTile, toTile);
+        }
+        
+        // Get shortest path between two tiles
+        public List<Vector2Int> FindPath(Vector2Int fromTile, Vector2Int toTile)
+        {
+            return GridPathfinder.FindPath(this, fromTile, toTile);
         }
         #endregion
 

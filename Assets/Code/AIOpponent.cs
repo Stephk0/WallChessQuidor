@@ -177,12 +177,12 @@ namespace WallChess
                 for (int dy = -radius; dy <= radius; dy++)
                 {
                     Vector2Int gridPos = new Vector2Int(themPos.x + dx, themPos.y + dy);
-                    Vector3 worldPos = new Vector3(gridPos.x * spacing, gridPos.y * spacing, 0f);
-
-                    // Try both orientations at each candidate location
-                    AddCandidateIfValid(worldPos, candidates);
-                    AddCandidateIfValid(worldPos + Vector3.right * spacing * 0.5f, candidates);
-                    AddCandidateIfValid(worldPos + Vector3.up * spacing * 0.5f, candidates);
+                    
+                    // Try horizontal walls at various positions
+                    TryAddHorizontalWallCandidates(gridPos, spacing, candidates);
+                    
+                    // Try vertical walls at various positions
+                    TryAddVerticalWallCandidates(gridPos, spacing, candidates);
                 }
             }
 
@@ -202,6 +202,34 @@ namespace WallChess
                     candidates.Add(info);
                 }
             }
+        }
+
+        void TryAddHorizontalWallCandidates(Vector2Int gridPos, float spacing, List<GapDetector.WallInfo> candidates)
+        {
+            // Try horizontal wall positions around this grid position
+            Vector3 basePos = new Vector3(gridPos.x * spacing, gridPos.y * spacing, 0f);
+            
+            // Try horizontal wall above this position
+            Vector3 wallPosAbove = basePos + Vector3.up * (spacing * 0.5f);
+            AddCandidateIfValid(wallPosAbove, candidates);
+            
+            // Try horizontal wall below this position  
+            Vector3 wallPosBelow = basePos - Vector3.up * (spacing * 0.5f);
+            AddCandidateIfValid(wallPosBelow, candidates);
+        }
+
+        void TryAddVerticalWallCandidates(Vector2Int gridPos, float spacing, List<GapDetector.WallInfo> candidates)
+        {
+            // Try vertical wall positions around this grid position
+            Vector3 basePos = new Vector3(gridPos.x * spacing, gridPos.y * spacing, 0f);
+            
+            // Try vertical wall to the right of this position
+            Vector3 wallPosRight = basePos + Vector3.right * (spacing * 0.5f);
+            AddCandidateIfValid(wallPosRight, candidates);
+            
+            // Try vertical wall to the left of this position
+            Vector3 wallPosLeft = basePos - Vector3.right * (spacing * 0.5f);
+            AddCandidateIfValid(wallPosLeft, candidates);
         }
 
         GapDetector GetGapDetector() => wallMgr?.GetGapDetector();
