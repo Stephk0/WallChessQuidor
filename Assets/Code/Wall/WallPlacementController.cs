@@ -91,10 +91,13 @@ namespace WallChess
                 s.SetOccupied(WallState.Orientation.Vertical, info.x, info.y + 1, true);
             }
             // optionally sync with GridSystem if needed
+           /*
             gm.GetGridSystem()?.SetGapOccupied(
                 info.orientation == WallState.Orientation.Horizontal ? GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical,
                 info.x, info.y, true
+            
             );
+           */
         }
 
         bool IsClickingOnAvatar()

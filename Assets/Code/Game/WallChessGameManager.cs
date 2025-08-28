@@ -133,7 +133,7 @@ namespace WallChess
         void InitializeGame()
         {
             // Initialize GridSystem
-            gridSystem = gameObject.AddComponent<GridSystem>();
+            gridSystem = gameObject.GetComponent<GridSystem>();
             
             GridSystem.GridSettings gridSettings = new GridSystem.GridSettings
             {
@@ -150,8 +150,8 @@ namespace WallChess
             InitializePlayerPawnSystem();
 
             // Initialize controllers
-            playerController = gameObject.AddComponent<PlayerControllerV2>();
-            wallManager = gameObject.AddComponent<WallManager>();
+            playerController = gameObject.GetComponent<PlayerControllerV2>();
+            wallManager = gameObject.GetComponent<WallManager>();
 
             playerController.Initialize(this);
             //wallManager.Initialize(this);

@@ -59,57 +59,6 @@ namespace WallChess
         }
 
         public bool TryPlaceWall(Vector3 worldPosition) => placement.TryPlaceWall(worldPosition);
-        
-        // Expose state toggle for AI simulation
-        public void SetGapOccupiedForTesting(WallState.Orientation o, int x, int y, bool occupied)
-        {
-            state.SetOccupied(o, x, y, occupied);
-        }
-
-        // Recreate the old "GetValidWallPositions" for AI pruning
-        public System.Collections.Generic.List<WallInfo> GetValidWallPositions()
-        {
-            var list = new System.Collections.Generic.List<WallInfo>();
-            var extents = state.MaxExtentsWithinBoard();
-            int maxHX = extents.maxHX;
-            int maxVY = extents.maxVY;
-
-            // Horizontal
-            for (int y = 0; y < state.HRows; y++)
-            {
-                for (int x = 0; x <= maxHX; x++)
-                {
-                    var c = state.GapCenter(WallState.Orientation.Horizontal, x, y);
-                    var info = new WallInfo(
-                        WallState.Orientation.Horizontal,
-                        x, y,
-                        new Vector3(c.x, c.y, -0.1f),
-                        new Vector3(gameManager.tileSize * 2f + gameManager.tileGap, gameManager.wallThickness, gameManager.wallHeight)
-                    );
-                    if (validator.CanPlace(new GapDetector.WallInfo { orientation = info.orientation, x = info.x, y = info.y, pos = info.position, scale = info.scale }))
-                        list.Add(info);
-                }
-            }
-
-            // Vertical
-            for (int x = 0; x < state.VCols; x++)
-            {
-                for (int y = 0; y <= maxVY; y++)
-                {
-                    var c = state.GapCenter(WallState.Orientation.Vertical, x, y);
-                    var info = new WallInfo(
-                        WallState.Orientation.Vertical,
-                        x, y,
-                        new Vector3(c.x, c.y, -0.1f),
-                        new Vector3(gameManager.wallThickness, gameManager.tileSize * 2f + gameManager.tileGap, gameManager.wallHeight)
-                    );
-                    if (validator.CanPlace(new GapDetector.WallInfo { orientation = info.orientation, x = info.x, y = info.y, pos = info.position, scale = info.scale }))
-                        list.Add(info);
-                }
-            }
-
-            return list;
-        }
 
         public void ClearAllWalls()
         {
