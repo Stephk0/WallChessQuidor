@@ -147,7 +147,7 @@ namespace WallChess
         private void CreateGrid()
         {
             tileManager.CreateAllTiles();
-            uiManager.CreateAllTileLabels();
+            //uiManager.CreateAllTileLabels();
         }
         #endregion
 

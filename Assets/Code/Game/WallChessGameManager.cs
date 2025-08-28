@@ -5,6 +5,8 @@ namespace WallChess
 {
     public enum GameState
     {
+        GameStart,
+        BuildTiles,
         PlayerTurn,
         PawnMoving,
         WallPlacement,
@@ -161,6 +163,9 @@ namespace WallChess
             {
                 gridSystem.SetTileOccupied(pawn.position, true);
             }
+
+            //init game state to player turn for now
+            ChangeState(GameState.PlayerTurn);
 
             // Subscribe to events
             gridSystem.OnTileOccupancyChanged += OnTileOccupancyChanged;
