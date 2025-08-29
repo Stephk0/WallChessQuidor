@@ -7,6 +7,7 @@ namespace WallChess
     {
         private WallChessGameManager gameManager;
         private GridSystem gridSystem;
+        private HighlightManager highlightManager;
         private Camera mainCamera;
         
         [Header("Debug")]
@@ -16,6 +17,7 @@ namespace WallChess
         {
             gameManager = gm;
             gridSystem = gm.GetGridSystem();
+            highlightManager = gm.GetHighlightManager();
             mainCamera = Camera.main;
             
             // Add drag controllers to both avatars
@@ -222,6 +224,7 @@ namespace WallChess
         #region Public API
         public WallChessGameManager GetGameManager() => gameManager;
         public GridSystem GetGridSystem() => gridSystem;
+        public HighlightManager GetHighlightManager() => highlightManager;
         public Camera GetMainCamera() => mainCamera;
         #endregion
     }

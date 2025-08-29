@@ -13,7 +13,6 @@ namespace WallChess
         private bool isDragging = false;
         private Vector3 originalPosition;
         private Vector2Int originalGridPosition;
-        private List<GameObject> moveHighlights = new List<GameObject>();
         
         public void Initialize(PlayerControllerV2 ctrl, bool isPlayer)
         {
@@ -94,45 +93,27 @@ namespace WallChess
             Vector2Int currentPos = controller.GetAvatarPosition(isPlayerAvatar);
             List<Vector2Int> validMoves = controller.GetValidMoves(currentPos);
             
-            foreach (Vector2Int move in validMoves)
+            // Use the pooled highlight system from the controller
+            HighlightManager highlightManager = controller.GetHighlightManager();
+            if (highlightManager != null)
             {
-                Vector3 worldPos = controller.GridToWorldPosition(move);
-                
-                GameObject highlight = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                highlight.name = "MoveHighlight";
-                highlight.transform.position = worldPos + Vector3.back * 0.2f;
-                highlight.transform.localScale = Vector3.one * 0.3f;
-                
-                Renderer renderer = highlight.GetComponent<Renderer>();
-                Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                mat.color = new Color(0, 1, 0, 0.7f);
-                renderer.material = mat;
-                
-                // Remove collider to prevent interference
-                Collider col = highlight.GetComponent<Collider>();
-                if (col != null) DestroyImmediate(col);
-                
-                moveHighlights.Add(highlight);
+                highlightManager.ShowHighlights(validMoves, controller.GetGridSystem());
+                Debug.Log($"Showing {validMoves.Count} valid move highlights for {(isPlayerAvatar ? "player" : "opponent")}");
             }
-            
-            Debug.Log($"Showing {validMoves.Count} valid move highlights for {(isPlayerAvatar ? "player" : "opponent")}");
+            else
+            {
+                Debug.LogWarning("HighlightManager not found! Cannot show move highlights.");
+            }
         }
 
         void ClearHighlights()
         {
-            foreach (GameObject highlight in moveHighlights)
+            // Use the pooled highlight system from the controller
+            HighlightManager highlightManager = controller.GetHighlightManager();
+            if (highlightManager != null)
             {
-                if (highlight != null)
-                {
-#if UNITY_EDITOR
-                    if (Application.isPlaying)
-                        Destroy(highlight);
-                    else
-                        DestroyImmediate(highlight);
-#endif
-                }
+                highlightManager.ClearHighlights();
             }
-            moveHighlights.Clear();
         }
 
         Vector3 GetMouseWorldPosition()

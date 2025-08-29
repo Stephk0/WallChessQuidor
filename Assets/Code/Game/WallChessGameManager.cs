@@ -95,6 +95,7 @@ namespace WallChess
         private GridSystem gridSystem;
         private PlayerControllerV2 playerController;
         private WallManager wallManager;
+        private HighlightManager highlightManager;
 
         // Context menu items
         [ContextMenu("Grid/Apply Current Settings")]
@@ -154,9 +155,17 @@ namespace WallChess
             // Initialize controllers
             playerController = gameObject.GetComponent<PlayerControllerV2>();
             wallManager = gameObject.GetComponent<WallManager>();
+            highlightManager = gameObject.GetComponent<HighlightManager>();
+            
+            // If no HighlightManager exists, add one
+            if (highlightManager == null)
+            {
+                highlightManager = gameObject.AddComponent<HighlightManager>();
+            }
 
             playerController.Initialize(this);
             wallManager.Initialize(this);
+            highlightManager.Initialize(highlightPrefab);
 
             // Set up initial tile occupancy
             foreach (var pawn in pawns)
@@ -618,6 +627,7 @@ namespace WallChess
         public GridSystem GetGridSystem() => gridSystem;
         public PlayerControllerV2 GetPlayerController() => playerController;
         public WallManager GetWallManager() => wallManager;
+        public HighlightManager GetHighlightManager() => highlightManager;
         
         // New pawn system API
         public int GetActivePawnIndex() => activePlayerIndex;

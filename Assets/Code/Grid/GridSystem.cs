@@ -368,34 +368,32 @@ namespace WallChess
 
         public bool CanPlaceWall(Orientation orientation, int x, int y)
         {
-            // Wall occupies 2 consecutive gaps and passes through an intersection
+            // SIMPLIFIED: Check if any of the 3 points (2 gaps + middle intersection) are occupied
             if (orientation == Orientation.Horizontal)
             {
-                // Check both horizontal gaps and intersection
-                Vector2Int gap1 = new Vector2Int(x * 2, y * 2 + 1);
-                Vector2Int gap2 = new Vector2Int(x * 2 + 2, y * 2 + 1);
-                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
+                Vector2Int leftGap = new Vector2Int(x * 2, y * 2 + 1);
+                Vector2Int rightGap = new Vector2Int(x * 2 + 2, y * 2 + 1);
+                Vector2Int middleIntersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
                 
-                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2) || !IsValidUnifiedPosition(intersection))
+                if (!IsValidUnifiedPosition(leftGap) || !IsValidUnifiedPosition(rightGap) || !IsValidUnifiedPosition(middleIntersection))
                     return false;
                     
-                return !unifiedGrid[gap1.x, gap1.y].isOccupied && 
-                       !unifiedGrid[gap2.x, gap2.y].isOccupied &&
-                       !unifiedGrid[intersection.x, intersection.y].isOccupied;
+                return !unifiedGrid[leftGap.x, leftGap.y].isOccupied && 
+                       !unifiedGrid[rightGap.x, rightGap.y].isOccupied &&
+                       !unifiedGrid[middleIntersection.x, middleIntersection.y].isOccupied;
             }
             else // Vertical
             {
-                // Check both vertical gaps and intersection
-                Vector2Int gap1 = new Vector2Int(x * 2 + 1, y * 2);
-                Vector2Int gap2 = new Vector2Int(x * 2 + 1, y * 2 + 2);
-                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
+                Vector2Int bottomGap = new Vector2Int(x * 2 + 1, y * 2);
+                Vector2Int topGap = new Vector2Int(x * 2 + 1, y * 2 + 2);
+                Vector2Int middleIntersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
                 
-                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2) || !IsValidUnifiedPosition(intersection))
+                if (!IsValidUnifiedPosition(bottomGap) || !IsValidUnifiedPosition(topGap) || !IsValidUnifiedPosition(middleIntersection))
                     return false;
                     
-                return !unifiedGrid[gap1.x, gap1.y].isOccupied && 
-                       !unifiedGrid[gap2.x, gap2.y].isOccupied &&
-                       !unifiedGrid[intersection.x, intersection.y].isOccupied;
+                return !unifiedGrid[bottomGap.x, bottomGap.y].isOccupied && 
+                       !unifiedGrid[topGap.x, topGap.y].isOccupied &&
+                       !unifiedGrid[middleIntersection.x, middleIntersection.y].isOccupied;
             }
         }
 
@@ -405,31 +403,34 @@ namespace WallChess
         }
         
         /// <summary>
-        /// FIXED: Place wall with option to suppress events (for temporary validation placements)
+        /// SIMPLIFIED FIX: Each wall occupies exactly 3 points (2 endpoint gaps + 1 middle intersection)
+        /// This prevents wall crossings while still allowing T-crossings
         /// </summary>
         public bool PlaceWall(WallInfo wallInfo, bool triggerEvents)
         {
             if (!CanPlaceWall(wallInfo.orientation, wallInfo.x, wallInfo.y))
                 return false;
             
-            // Mark gaps and intersection as occupied
+            // Mark the 3 points as occupied: 2 endpoint gaps + 1 middle intersection
             if (wallInfo.orientation == Orientation.Horizontal)
             {
-                Vector2Int gap1 = new Vector2Int(wallInfo.x * 2, wallInfo.y * 2 + 1);
-                Vector2Int gap2 = new Vector2Int(wallInfo.x * 2 + 2, wallInfo.y * 2 + 1);
-                Vector2Int intersection = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 1);
-                unifiedGrid[gap1.x, gap1.y].isOccupied = true;
-                unifiedGrid[gap2.x, gap2.y].isOccupied = true;
-                unifiedGrid[intersection.x, intersection.y].isOccupied = true;
+                Vector2Int leftGap = new Vector2Int(wallInfo.x * 2, wallInfo.y * 2 + 1);
+                Vector2Int rightGap = new Vector2Int(wallInfo.x * 2 + 2, wallInfo.y * 2 + 1);
+                Vector2Int middleIntersection = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 1);
+                
+                unifiedGrid[leftGap.x, leftGap.y].isOccupied = true;
+                unifiedGrid[rightGap.x, rightGap.y].isOccupied = true;
+                unifiedGrid[middleIntersection.x, middleIntersection.y].isOccupied = true;
             }
             else // Vertical
             {
-                Vector2Int gap1 = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2);
-                Vector2Int gap2 = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 2);
-                Vector2Int intersection = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 1);
-                unifiedGrid[gap1.x, gap1.y].isOccupied = true;
-                unifiedGrid[gap2.x, gap2.y].isOccupied = true;
-                unifiedGrid[intersection.x, intersection.y].isOccupied = true;
+                Vector2Int bottomGap = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2);
+                Vector2Int topGap = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 2);
+                Vector2Int middleIntersection = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 1);
+                
+                unifiedGrid[bottomGap.x, bottomGap.y].isOccupied = true;
+                unifiedGrid[topGap.x, topGap.y].isOccupied = true;
+                unifiedGrid[middleIntersection.x, middleIntersection.y].isOccupied = true;
             }
             
             // Only trigger events if requested (not for temporary validation placements)
@@ -449,29 +450,29 @@ namespace WallChess
         }
         
         /// <summary>
-        /// FIXED: Remove wall occupancy without triggering events (for temporary validation cleanup)
+        /// SIMPLIFIED: Remove wall occupancy (clear the 3 points: 2 endpoint gaps + middle intersection)
         /// </summary>
         public void RemoveWallOccupancy(Orientation orientation, int x, int y)
         {
             if (orientation == Orientation.Horizontal)
             {
-                Vector2Int gap1 = new Vector2Int(x * 2, y * 2 + 1);
-                Vector2Int gap2 = new Vector2Int(x * 2 + 2, y * 2 + 1);
-                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
+                Vector2Int leftGap = new Vector2Int(x * 2, y * 2 + 1);
+                Vector2Int rightGap = new Vector2Int(x * 2 + 2, y * 2 + 1);
+                Vector2Int middleIntersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
                 
-                if (IsValidUnifiedPosition(gap1)) unifiedGrid[gap1.x, gap1.y].isOccupied = false;
-                if (IsValidUnifiedPosition(gap2)) unifiedGrid[gap2.x, gap2.y].isOccupied = false;
-                if (IsValidUnifiedPosition(intersection)) unifiedGrid[intersection.x, intersection.y].isOccupied = false;
+                if (IsValidUnifiedPosition(leftGap)) unifiedGrid[leftGap.x, leftGap.y].isOccupied = false;
+                if (IsValidUnifiedPosition(rightGap)) unifiedGrid[rightGap.x, rightGap.y].isOccupied = false;
+                if (IsValidUnifiedPosition(middleIntersection)) unifiedGrid[middleIntersection.x, middleIntersection.y].isOccupied = false;
             }
             else // Vertical
             {
-                Vector2Int gap1 = new Vector2Int(x * 2 + 1, y * 2);
-                Vector2Int gap2 = new Vector2Int(x * 2 + 1, y * 2 + 2);
-                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
+                Vector2Int bottomGap = new Vector2Int(x * 2 + 1, y * 2);
+                Vector2Int topGap = new Vector2Int(x * 2 + 1, y * 2 + 2);
+                Vector2Int middleIntersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
                 
-                if (IsValidUnifiedPosition(gap1)) unifiedGrid[gap1.x, gap1.y].isOccupied = false;
-                if (IsValidUnifiedPosition(gap2)) unifiedGrid[gap2.x, gap2.y].isOccupied = false;
-                if (IsValidUnifiedPosition(intersection)) unifiedGrid[intersection.x, intersection.y].isOccupied = false;
+                if (IsValidUnifiedPosition(bottomGap)) unifiedGrid[bottomGap.x, bottomGap.y].isOccupied = false;
+                if (IsValidUnifiedPosition(topGap)) unifiedGrid[topGap.x, topGap.y].isOccupied = false;
+                if (IsValidUnifiedPosition(middleIntersection)) unifiedGrid[middleIntersection.x, middleIntersection.y].isOccupied = false;
             }
         }
         #endregion

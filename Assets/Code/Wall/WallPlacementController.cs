@@ -58,7 +58,8 @@ namespace WallChess
                 {
                     bool canPlace = ValidateWallPlacement(wallInfo.Value);
                     Vector3 scale = wallManager.GetWallScale(wallInfo.Value.orientation);
-                    visuals.UpdatePreview(wallInfo.Value.worldPosition, scale, canPlace);
+                    Quaternion rotation = wallManager.GetWallRotation(wallInfo.Value.orientation);
+                    visuals.UpdatePreview(wallInfo.Value.worldPosition, scale, rotation, canPlace);
                 }
                 else visuals.HidePreview();
             }
@@ -149,6 +150,7 @@ namespace WallChess
         
         /// <summary>
         /// FIXED: Only creates wall visual and decrements count if placement succeeds
+        /// Now uses rotation-based prefab system
         /// </summary>
         void Commit(UnifiedWallInfo info)
         {
@@ -159,9 +161,13 @@ namespace WallChess
                 return;
             }
 
-            // Create wall visual first
+            // Get rotation and scale from WallManager
+            Quaternion rotation = wallManager.GetWallRotation(info.orientation);
             Vector3 scale = wallManager.GetWallScale(info.orientation);
-            GameObject wallObj = visuals.CreateWall(info.worldPosition, scale);
+            GameObject prefabToUse = wallManager.GetRandomWallPrefab();
+            
+            // Create wall visual with rotation and appropriate prefab
+            GameObject wallObj = visuals.CreateWall(info.worldPosition, scale, rotation, prefabToUse);
             
             // Attempt to place wall in grid system (single source of truth)
             bool placed = wallManager.PlaceWall(info.orientation, info.x, info.y, info.worldPosition, scale);
@@ -169,7 +175,7 @@ namespace WallChess
             if (placed)
             {
                 wallManager.AddManagedWall(wallObj);
-                Debug.Log($"Wall successfully placed at {info.orientation} {info.x},{info.y}");
+                Debug.Log($"Wall successfully placed at {info.orientation} {info.x},{info.y} with rotation {rotation.eulerAngles}");
                 // OnWallPlaced event will be triggered automatically, which handles wall count decrementation
             }
             else

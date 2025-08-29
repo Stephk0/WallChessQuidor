@@ -7,12 +7,30 @@ namespace WallChess
     /// <summary>
     /// Unified WallManager that uses GridSystem as single source of truth for occupancy.
     /// No more dual tracking systems - everything goes through GridSystem.
+    /// Enhanced with prefab rotation system and debug mode support.
     /// </summary>
     public class WallManager : MonoBehaviour
     {
-        [Header("Assets")]
+        [Header("Debug & Development")]
+        [SerializeField] private bool boxForPrefabDebugMode = false;
+        [Tooltip("When enabled, uses primitive boxes scaled to fit gaps instead of prefabs")]
+        
+        [Header("Wall Prefabs")]
+        [SerializeField] private List<GameObject> wallPrefabs = new List<GameObject>();
+        [Tooltip("List of wall prefabs to randomly choose from for placement")]
+        
+        [Header("Prefab Orientation")]
+        [SerializeField] private Vector3 horizontalRotation = Vector3.zero;
+        [Tooltip("Rotation applied to prefabs when placing horizontally")]
+        [SerializeField] private Vector3 verticalRotation = new Vector3(0, 0, 90);
+        [Tooltip("Rotation applied to prefabs when placing vertically")]
+        [SerializeField] private Vector3 rotationAxis = Vector3.forward;
+        [Tooltip("Axis around which to rotate the prefab for orientation changes")]
+
+        [Header("Legacy Assets (Debug Mode Only)")]
         [SerializeField] private Material wallMaterial;
         [SerializeField] private GameObject wallPrefab;
+        [Tooltip("Used only when Box For Prefab Debug Mode is enabled")]
 
         [Header("Placement Visuals")]
         [SerializeField] private Color validPreviewColor = new Color(0, 1, 0, 0.7f);
@@ -52,12 +70,16 @@ namespace WallChess
                 return;
             }
 
+            // Validate prefab setup
+            ValidatePrefabSetup();
+
             // Initialize unified systems that use GridSystem as source of truth
             validator = new WallValidator(gridSystem, gameManager);
-            visuals = new WallVisuals(wallPrefab, wallMaterial, validPreviewColor, invalidPreviewColor, placingPreviewColor);
+            visuals = new WallVisuals(GetActivePrefab(), GetActiveMaterial(), validPreviewColor, invalidPreviewColor, placingPreviewColor);
+            visuals.SetWallManager(this); // Set reference for advanced preview features
             placement = new WallPlacementController(this, gameManager, gridSystem, validator, visuals, placementPlaneZ);
 
-            Debug.Log("WallManager initialized with unified GridSystem integration");
+            Debug.Log($"WallManager initialized with unified GridSystem integration. Debug mode: {boxForPrefabDebugMode}");
         }
 
         /// <summary>
@@ -78,6 +100,144 @@ namespace WallChess
             var settings = gridSystem.GetGridSettings();
             var alignment = gridSystem.GetGridAlignment();
             return new GridCoordinateConverter(settings.TileSpacing, settings.gridSize, alignment);
+        }
+
+        /// <summary>
+        /// Validates prefab setup and provides warnings if needed
+        /// </summary>
+        private void ValidatePrefabSetup()
+        {
+            if (boxForPrefabDebugMode)
+            {
+                if (wallPrefab == null)
+                {
+                    Debug.LogWarning("WallManager: Box for Prefab Debug Mode is enabled but no wallPrefab is assigned!");
+                }
+                if (wallMaterial == null)
+                {
+                    Debug.LogWarning("WallManager: Box for Prefab Debug Mode is enabled but no wallMaterial is assigned!");
+                }
+            }
+            else
+            {
+                if (wallPrefabs == null || wallPrefabs.Count == 0)
+                {
+                    Debug.LogError("WallManager: No wall prefabs assigned! Either enable Debug Mode or assign wall prefabs.");
+                }
+                else
+                {
+                    // Check for null prefabs in the list
+                    for (int i = wallPrefabs.Count - 1; i >= 0; i--)
+                    {
+                        if (wallPrefabs[i] == null)
+                        {
+                            Debug.LogWarning($"WallManager: Null prefab found at index {i}, removing from list.");
+                            wallPrefabs.RemoveAt(i);
+                        }
+                    }
+                    
+                    if (wallPrefabs.Count == 0)
+                    {
+                        Debug.LogError("WallManager: All wall prefabs were null! Either enable Debug Mode or assign valid wall prefabs.");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the active prefab based on current mode
+        /// </summary>
+        private GameObject GetActivePrefab()
+        {
+            if (boxForPrefabDebugMode)
+            {
+                return wallPrefab;
+            }
+            
+            if (wallPrefabs != null && wallPrefabs.Count > 0)
+            {
+                // For now, return the first valid prefab. Could be randomized later if desired.
+                return wallPrefabs[0];
+            }
+            
+            // Fallback to debug prefab
+            Debug.LogWarning("WallManager: No valid prefabs available, falling back to debug prefab.");
+            return wallPrefab;
+        }
+
+        /// <summary>
+        /// Gets the active material based on current mode
+        /// </summary>
+        private Material GetActiveMaterial()
+        {
+            if (boxForPrefabDebugMode)
+            {
+                return wallMaterial;
+            }
+            
+            // In prefab mode, materials should come from the prefab itself
+            return null;
+        }
+
+        /// <summary>
+        /// Gets a random wall prefab from the list (for variety in wall placement)
+        /// </summary>
+        public GameObject GetRandomWallPrefab()
+        {
+            if (boxForPrefabDebugMode || wallPrefabs == null || wallPrefabs.Count == 0)
+            {
+                return GetActivePrefab();
+            }
+            
+            int randomIndex = Random.Range(0, wallPrefabs.Count);
+            return wallPrefabs[randomIndex];
+        }
+
+        /// <summary>
+        /// Gets the appropriate rotation for a wall based on its orientation
+        /// </summary>
+        public Quaternion GetWallRotation(GridSystem.Orientation orientation)
+        {
+            if (boxForPrefabDebugMode)
+            {
+                // In debug mode, we still use scaling, so no rotation needed
+                return Quaternion.identity;
+            }
+
+            Vector3 targetRotation = orientation == GridSystem.Orientation.Horizontal 
+                                   ? horizontalRotation 
+                                   : verticalRotation;
+            
+            return Quaternion.Euler(targetRotation);
+        }
+
+        /// <summary>
+        /// Gets the scale for walls (used mainly in debug mode)
+        /// </summary>
+        public Vector3 GetWallScale(GridSystem.Orientation orientation)
+        {
+            if (!boxForPrefabDebugMode)
+            {
+                // In prefab mode, use the prefab's natural scale
+                return Vector3.one;
+            }
+
+            // Debug mode: use the original scaling logic
+            var settings = gridSystem.GetGridSettings();
+            
+            // Wall spans exactly 2 tiles plus the gap between them
+            float wallLength = (settings.tileSize * 2f) + settings.tileGap;
+            
+            if (orientation == GridSystem.Orientation.Horizontal)
+            {
+                // Horizontal wall: length in X direction, thickness in Y direction
+                return new Vector3(wallLength, settings.wallThickness, settings.wallHeight);
+            }
+            else
+            {
+                // Vertical wall: thickness in X direction, length in Y direction
+                return new Vector3(settings.wallThickness, wallLength, settings.wallHeight);
+            }
         }
 
         void Update()
@@ -270,25 +430,6 @@ namespace WallChess
             }
         }
         
-        public Vector3 GetWallScale(GridSystem.Orientation orientation)
-        {
-            var settings = gridSystem.GetGridSettings();
-            
-            // Wall spans exactly 2 tiles plus the gap between them
-            float wallLength = (settings.tileSize * 2f) + settings.tileGap;
-            
-            if (orientation == GridSystem.Orientation.Horizontal)
-            {
-                // Horizontal wall: length in X direction, thickness in Y direction
-                return new Vector3(wallLength, settings.wallThickness, settings.wallHeight);
-            }
-            else
-            {
-                // Vertical wall: thickness in X direction, length in Y direction
-                return new Vector3(settings.wallThickness, wallLength, settings.wallHeight);
-            }
-        }
-
         // Public accessors for AI integration
         public WallValidator GetWallValidator() => validator;
         public WallVisuals GetWallVisuals() => visuals;
@@ -300,6 +441,12 @@ namespace WallChess
         public float GetGapSnapMargin() => gapSnapMargin;
         public float GetLaneSnapMargin() => laneSnapMargin;
         public float GetUnlockMultiplier() => unlockMultiplier;
+
+        // Public accessors for prefab system
+        public bool IsDebugMode() => boxForPrefabDebugMode;
+        public Vector3 GetRotationAxis() => rotationAxis;
+        public Vector3 GetHorizontalRotation() => horizontalRotation;
+        public Vector3 GetVerticalRotation() => verticalRotation;
         
         // Legacy compatibility methods for AIOpponent
         [System.Obsolete("Use GetGridSystem().CanPlaceWall() instead")]
