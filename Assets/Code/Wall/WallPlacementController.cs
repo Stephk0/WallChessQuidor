@@ -75,22 +75,36 @@ namespace WallChess
             }
         }
 
+        /// <summary>
+        /// CLEAN EVENT-DRIVEN: API wall placement with no direct state management
+        /// </summary>
         public bool TryPlaceWall(Vector3 worldPosition)
         {
-            if (!gameManager.CanInitiateWallPlacement()) return false;
-            if (!gameManager.TryStartWallPlacement()) return false;
+            if (!gameManager.CanInitiateWallPlacement()) 
+            {
+                Debug.LogWarning("TryPlaceWall: Cannot initiate wall placement");
+                return false;
+            }
+            
+            if (!gameManager.TryStartWallPlacement()) 
+            {
+                Debug.LogWarning("TryPlaceWall: Failed to start wall placement");
+                return false;
+            }
             
             var wallInfo = FindNearestWallGap(worldPosition);
             if (wallInfo.HasValue && ValidateWallPlacement(wallInfo.Value))
             {
+                Debug.Log($"TryPlaceWall: Valid placement found - calling Commit()");
                 Commit(wallInfo.Value);
                 orientationLock = null; // Reset after placement
-                Debug.Log($"TryPlaceWall: Wall committed successfully - turn ending handled by event system");
+                // Commit() handles success via event system - no additional calls needed
                 return true;
             }
             
-            // Only call CompleteWallPlacement for failed attempts
-            gameManager.CompleteWallPlacement(false);
+            Debug.LogWarning($"TryPlaceWall: Invalid placement at world position {worldPosition}");
+            // Handle failed placement
+            HandleFailedPlacement();
             return false;
         }
 
@@ -114,31 +128,33 @@ namespace WallChess
             return true;
         }
 
+        /// <summary>
+        /// CLEAN EVENT-DRIVEN: Mouse placement with no direct state management
+        /// </summary>
         void TryCommitAtMouse()
         {
-            bool success = false;
             Vector3 mouse = GetMouseWorld();
             var wallInfo = FindNearestWallGap(mouse);
             
             if (IsWithinBounds(mouse) && wallInfo.HasValue && ValidateWallPlacement(wallInfo.Value))
             {
+                Debug.Log($"TryCommitAtMouse: Valid placement found - calling Commit()");
                 Commit(wallInfo.Value);
-                success = true;
-                Debug.Log($"Wall placement committed successfully at {wallInfo.Value.orientation} ({wallInfo.Value.x},{wallInfo.Value.y})");
+                // Commit() handles everything via event system - no additional calls needed
             }
-            else if (wallInfo.HasValue)
+            else 
             {
-                Debug.LogWarning($"Cannot place wall at {wallInfo.Value.orientation} ({wallInfo.Value.x},{wallInfo.Value.y}) - validation failed");
-            }
-            
-            visuals.CleanupPreview();
-            
-            // FIXED: Don't call CompleteWallPlacement here - it's handled by OnWallPlaced event
-            // This prevents double calls to EndTurn() which was causing activePlayerIndex issues
-            if (!success)
-            {
-                // Only handle failed placements here - successful ones are handled by event system
-                gameManager.CompleteWallPlacement(false);
+                if (wallInfo.HasValue)
+                {
+                    Debug.LogWarning($"TryCommitAtMouse: Invalid placement {wallInfo.Value.orientation} ({wallInfo.Value.x},{wallInfo.Value.y})");
+                }
+                else
+                {
+                    Debug.LogWarning("TryCommitAtMouse: No wall gap found at mouse position");
+                }
+                
+                // Handle failed placement
+                HandleFailedPlacement();
             }
         }
 
@@ -159,44 +175,57 @@ namespace WallChess
         }
         
         /// <summary>
-        /// FIXED: Only creates wall visual and decrements count if placement succeeds
-        /// Now uses rotation-based prefab system
+        /// CLEAN EVENT-DRIVEN: Wall placement with no direct state management
+        /// All post-placement logic handled by OnWallPlaced event
         /// </summary>
         void Commit(UnifiedWallInfo info)
         {
-            Debug.Log($"Commit: Attempting to place wall {info.orientation} at ({info.x},{info.y}) for activePlayer {gameManager.GetActivePawnIndex()}");
+            Debug.Log($"Commit: Attempting wall placement {info.orientation} at ({info.x},{info.y})");
             
             // Final validation before commitment
             if (!ValidateWallPlacement(info))
             {
-                Debug.LogWarning($"Wall placement validation failed at commit for {info.orientation} ({info.x},{info.y})");
+                Debug.LogWarning($"Commit: Validation failed for {info.orientation} ({info.x},{info.y})");
+                // For failed placements, we need to handle cleanup directly since no event will fire
+                HandleFailedPlacement();
                 return;
             }
 
-            // Get rotation and scale from WallManager
+            // Get wall visual properties
             Quaternion rotation = wallManager.GetWallRotation(info.orientation);
             Vector3 scale = wallManager.GetWallScale(info.orientation);
             GameObject prefabToUse = wallManager.GetRandomWallPrefab();
             
-            // Create wall visual with rotation and appropriate prefab
+            // Create wall visual
             GameObject wallObj = visuals.CreateWall(info.worldPosition, scale, rotation, prefabToUse);
             
-            // Attempt to place wall in grid system (single source of truth)
-            Debug.Log($"Commit: About to call wallManager.PlaceWall() - this should trigger OnWallPlaced event");
+            // CLEAN: Only place wall - let event system handle all game state changes
             bool placed = wallManager.PlaceWall(info.orientation, info.x, info.y, info.worldPosition, scale);
             
             if (placed)
             {
                 wallManager.AddManagedWall(wallObj);
-                Debug.Log($"Commit: Wall successfully placed at {info.orientation} {info.x},{info.y} with rotation {rotation.eulerAngles}");
-                // OnWallPlaced event will be triggered automatically, which handles wall count decrementation and turn ending
+                Debug.Log($"Commit: Wall placed successfully - event system will handle turn ending");
+                // OnWallPlaced event will handle: wall count, turn ending, UI updates, state changes
             }
             else
             {
-                // Failed to place in grid - destroy visual and don't decrement wall count
+                // Cleanup visual on failure
                 WallState.SafeDestroy(wallObj);
-                Debug.LogError($"CRITICAL: Wall validation passed but GridSystem.PlaceWall failed at {info.orientation} {info.x},{info.y}. This indicates a validation bug!");
+                Debug.LogError($"Commit: GridSystem.PlaceWall failed after validation passed!");
+                HandleFailedPlacement();
             }
+        }
+        
+        /// <summary>
+        /// Handle failed wall placement - only called when placement fails
+        /// </summary>
+        private void HandleFailedPlacement()
+        {
+            visuals.CleanupPreview();
+            // Return to player turn state - no turn ending for failed placements
+            gameManager.CompleteWallPlacement(false);
+            Debug.Log("HandleFailedPlacement: Returned to PlayerTurn state");
         }
         
         // Legacy method for compatibility

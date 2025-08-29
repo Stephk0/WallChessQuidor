@@ -21,6 +21,25 @@ namespace WallChess
     }
 
     /// <summary>
+    /// Comprehensive data structure for wall placement events - accessible to UI
+    /// </summary>
+    [System.Serializable]
+    public class WallPlacementResult
+    {
+        public GridSystem.WallInfo wallInfo;
+        public int playerIndex;
+        public int previousWallCount;
+        public int remainingWalls;
+        public bool turnEnded;
+        public int nextPlayerIndex;
+        
+        public override string ToString()
+        {
+            return $"Wall {wallInfo.orientation} at ({wallInfo.x},{wallInfo.y}) by Player {playerIndex}. Walls: {previousWallCount}→{remainingWalls}. Turn ended: {turnEnded}";
+        }
+    }
+
+    /// <summary>
     /// REFACTORED WallChessGameManager - Using Player Pawn System
     /// 
     /// KEY IMPROVEMENTS:
@@ -29,12 +48,18 @@ namespace WallChess
     /// - Generalized win/start positions
     /// - Eliminated player/opponent hardcoding
     /// - Proper mutual exclusion between movement and wall placement
+    /// - Clean event-driven system for UI integration
     /// 
     /// PAWN SYSTEM:
     /// - pawns[0] = Player 1, pawns[1] = Player 2, etc.
     /// - activePlayerIndex tracks current turn
     /// - All movement/wall logic works with "current active pawn"
     /// - Supports 2-4 players with AI or human control
+    /// 
+    /// EVENT SYSTEM:
+    /// - OnWallPlacedComplete provides comprehensive data for UI
+    /// - Clean separation between game logic and UI updates
+    /// - All game state changes flow through events
     /// </summary>
     public class WallChessGameManager : MonoBehaviour
     {
@@ -96,6 +121,11 @@ namespace WallChess
         private PlayerControllerV2 playerController;
         private WallManager wallManager;
         private HighlightManager highlightManager;
+        
+        // CLEAN EVENT SYSTEM - UI accessible events
+        public static System.Action<WallPlacementResult> OnWallPlacedComplete;
+        public static System.Action<int> OnPlayerTurnChanged; // playerIndex
+        public static System.Action<int> OnPlayerVictory; // winning playerIndex
 
         // Context menu items
         [ContextMenu("Grid/Apply Current Settings")]
@@ -331,6 +361,9 @@ namespace WallChess
             pawns[activePlayerIndex].isActive = true;
             
             Debug.Log($"SetActivePlayer: Changed from {previousActivePlayer} to {activePlayerIndex}. Pawn.isActive = {pawns[activePlayerIndex].isActive}");
+            
+            // Trigger UI event for turn change
+            OnPlayerTurnChanged?.Invoke(activePlayerIndex);
         }
 
         public PawnData GetActivePawn()
@@ -498,8 +531,12 @@ namespace WallChess
 
                 if (hasWon)
                 {
-                    Debug.Log($"Player {i} Wins!");
+                    Debug.Log($"VICTORY: Player {i} Wins!");
                     ChangeState(GameState.GameOver);
+                    
+                    // Trigger UI victory event
+                    OnPlayerVictory?.Invoke(i);
+                    
                     return true;
                 }
             }
@@ -578,27 +615,58 @@ namespace WallChess
             Debug.Log($"Tile {gridPos} occupancy changed to: {occupied}");
         }
 
+        /// <summary>
+        /// ENHANCED EVENT-DRIVEN: Comprehensive wall placed handler with UI data
+        /// </summary>
         private void OnWallPlaced(GridSystem.WallInfo wallInfo)
         {
-            Debug.Log($"OnWallPlaced EVENT: Wall {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y}) - Current activePlayer: {activePlayerIndex}");
+            var activePawn = GetActivePawn();
+            int previousWalls = activePawn?.wallsRemaining ?? 0;
             
-            // In debug mode, don't decrement walls or change state
+            Debug.Log($"OnWallPlaced EVENT: Wall {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y}) by Player {activePlayerIndex}");
+            
+            // In debug mode, don't modify game state
             if (debugMode)
             {
-                Debug.Log("Debug Mode: Wall count not decremented, state unchanged");
+                Debug.Log("Debug Mode: Wall placed but no game state changes");
+                // Still trigger UI events for debug visualization
+                OnWallPlacedComplete?.Invoke(new WallPlacementResult
+                {
+                    wallInfo = wallInfo,
+                    playerIndex = activePlayerIndex,
+                    remainingWalls = previousWalls,
+                    turnEnded = false,
+                    nextPlayerIndex = activePlayerIndex
+                });
                 return;
             }
             
             // Decrement wall count for active player
-            var activePawn = GetActivePawn();
             if (activePawn != null)
             {
                 activePawn.wallsRemaining--;
-                Debug.Log($"OnWallPlaced: Player {activePlayerIndex} walls remaining: {activePawn.wallsRemaining}");
+                Debug.Log($"OnWallPlaced: Player {activePlayerIndex} walls: {previousWalls} → {activePawn.wallsRemaining}");
             }
 
-            // Complete wall placement and handle turn transition
-            Debug.Log($"OnWallPlaced: About to call CompleteWallPlacement(true) for activePlayer {activePlayerIndex}");
+            // Calculate next player for UI
+            int nextPlayer = (activePlayerIndex + 1) % pawns.Count;
+            
+            // Create comprehensive result for UI/events
+            var result = new WallPlacementResult
+            {
+                wallInfo = wallInfo,
+                playerIndex = activePlayerIndex,
+                previousWallCount = previousWalls,
+                remainingWalls = activePawn?.wallsRemaining ?? 0,
+                turnEnded = true,
+                nextPlayerIndex = nextPlayer
+            };
+            
+            // Trigger UI event BEFORE state changes
+            OnWallPlacedComplete?.Invoke(result);
+            
+            // Handle turn transition - this will change activePlayerIndex
+            Debug.Log($"OnWallPlaced: Ending turn - {activePlayerIndex} → {nextPlayer}");
             CompleteWallPlacement(true);
         }
 

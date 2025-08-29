@@ -337,6 +337,10 @@ namespace WallChess
             return gridSystem.CanPlaceWall(orientation, constrainedPos.x, constrainedPos.y);
         }
         
+        /// <summary>
+        /// CLEAN EVENT-DRIVEN: Wall placement with no direct game state management
+        /// Only handles wall placement logic - event system handles game state changes
+        /// </summary>
         public bool PlaceWall(GridSystem.Orientation orientation, int x, int y, Vector3 worldPos, Vector3 scale)
         {
             // Apply boundary constraints first
@@ -350,11 +354,13 @@ namespace WallChess
             var wallInfo = new GridSystem.WallInfo(orientation, x, y, worldPos, scale);
             bool placed = gridSystem.PlaceWall(wallInfo);
             
-            // Turn ending is handled automatically by GridSystem.OnWallPlaced event
-            // which triggers gameManager.OnWallPlaced -> CompleteWallPlacement(true) -> EndTurn()
             if (placed)
             {
-                Debug.Log($"Wall placed successfully at {orientation} ({x},{y}) - turn will end via event system");
+                Debug.Log($"WallManager.PlaceWall: Wall placed successfully at {orientation} ({x},{y}) - OnWallPlaced event will handle game state");
+            }
+            else
+            {
+                Debug.LogWarning($"WallManager.PlaceWall: Failed to place wall at {orientation} ({x},{y})");
             }
             
             return placed;
