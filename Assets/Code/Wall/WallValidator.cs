@@ -87,6 +87,7 @@ namespace WallChess
                 if (!HasPathToTargetSide(pawn))
                 {
                     anyPlayerBlocked = true;
+                    Debug.Log($"Wall at {orientation} ({x},{y}) would block pawn at {pawn.position} from reaching goal");
                     break;
                 }
             }
@@ -109,65 +110,86 @@ namespace WallChess
         // REMOVED: ClearTemporaryWall method - now using GridSystem.RemoveWallOccupancy()
         
         /// <summary>
-        /// FIXED: Check if a pawn has a path to ANY tile on their target side
-        /// According to Quoridor rules, players can reach any square on the opposite side
+        /// FIXED: Check if a pawn has a path to their goal using proper target determination
+        /// According to Quoridor rules, players must reach the opposite side of where they started
         /// </summary>
         private bool HasPathToTargetSide(WallChessGameManager.PawnData pawn)
         {
             Vector2Int currentPos = pawn.position;
-            int targetRow = GetTargetRow(pawn);
             int gridSize = gameManager.gridSize;
             
-            // For side-to-side movement (4-player games), check target column instead
-            if (IsHorizontalMovement(pawn))
+            // Get all possible goal tiles for this pawn
+            List<Vector2Int> goalTiles = GetGoalTiles(pawn, gridSize);
+            
+            // Test if there's a path to ANY goal tile
+            foreach (Vector2Int goalTile in goalTiles)
             {
-                int targetCol = GetTargetColumn(pawn);
-                // Test if there's a path to ANY tile on the target column
-                for (int row = 0; row < gridSize; row++)
+                // Skip if target tile is occupied by another pawn
+                if (gridSystem.IsTileOccupied(goalTile))
                 {
-                    Vector2Int targetTile = new Vector2Int(targetCol, row);
-                    
-                    // Skip if target tile is occupied by another pawn
-                    if (gridSystem.IsTileOccupied(targetTile))
-                    {
-                        // Check if it's occupied by this same pawn (already at goal)
-                        if (targetTile == currentPos)
-                            return true;
-                        continue;
-                    }
-                    
-                    // Check if path exists to this target tile
-                    if (gridSystem.PathExists(currentPos, targetTile))
-                    {
-                        return true; // Found at least one reachable tile on target side
-                    }
+                    // Check if it's occupied by this same pawn (already at goal)
+                    if (goalTile == currentPos)
+                        return true;
+                    continue;
                 }
-            }
-            else
-            {
-                // Test if there's a path to ANY tile on the target row
-                for (int col = 0; col < gridSize; col++)
+                
+                // Check if path exists to this goal tile
+                if (gridSystem.PathExists(currentPos, goalTile))
                 {
-                    Vector2Int targetTile = new Vector2Int(col, targetRow);
-                    
-                    // Skip if target tile is occupied by another pawn
-                    if (gridSystem.IsTileOccupied(targetTile))
-                    {
-                        // Check if it's occupied by this same pawn (already at goal)
-                        if (targetTile == currentPos)
-                            return true;
-                        continue;
-                    }
-                    
-                    // Check if path exists to this target tile
-                    if (gridSystem.PathExists(currentPos, targetTile))
-                    {
-                        return true; // Found at least one reachable tile on target side
-                    }
+                    return true; // Found at least one reachable tile on goal side
                 }
             }
             
-            return false; // No reachable tiles on target side
+            Debug.Log($"No path found for pawn at {currentPos} to any goal tile");
+            return false; // No reachable tiles on goal side
+        }
+        
+        /// <summary>
+        /// FIXED: Get all possible goal tiles for a pawn based on their starting position
+        /// Returns all tiles on the opposite side of the board from where the pawn started
+        /// </summary>
+        private List<Vector2Int> GetGoalTiles(WallChessGameManager.PawnData pawn, int gridSize)
+        {
+            List<Vector2Int> goalTiles = new List<Vector2Int>();
+            Vector2Int startPos = pawn.startPosition;
+            
+            // Determine which side of the board the pawn started on and set opposite as goal
+            
+            if (startPos.y == 0) // Started at bottom row (y=0)
+            {
+                // Goal is any tile on top row (y=gridSize-1)
+                for (int x = 0; x < gridSize; x++)
+                {
+                    goalTiles.Add(new Vector2Int(x, gridSize - 1));
+                }
+            }
+            else if (startPos.y == gridSize - 1) // Started at top row (y=gridSize-1)
+            {
+                // Goal is any tile on bottom row (y=0)
+                for (int x = 0; x < gridSize; x++)
+                {
+                    goalTiles.Add(new Vector2Int(x, 0));
+                }
+            }
+            else if (startPos.x == 0) // Started at left column (x=0)
+            {
+                // Goal is any tile on right column (x=gridSize-1)
+                for (int y = 0; y < gridSize; y++)
+                {
+                    goalTiles.Add(new Vector2Int(gridSize - 1, y));
+                }
+            }
+            else if (startPos.x == gridSize - 1) // Started at right column (x=gridSize-1)
+            {
+                // Goal is any tile on left column (x=0)
+                for (int y = 0; y < gridSize; y++)
+                {
+                    goalTiles.Add(new Vector2Int(0, y));
+                }
+            }
+            
+            Debug.Log($"Pawn at {pawn.position} (started at {startPos}) has {goalTiles.Count} goal tiles");
+            return goalTiles;
         }
         
         /// <summary>
