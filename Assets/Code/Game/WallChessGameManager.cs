@@ -314,8 +314,14 @@ namespace WallChess
 
         public void SetActivePlayer(int playerIndex)
         {
-            if (playerIndex < 0 || playerIndex >= pawns.Count) return;
+            if (playerIndex < 0 || playerIndex >= pawns.Count) 
+            {
+                Debug.LogError($"SetActivePlayer: Invalid playerIndex {playerIndex}. Valid range: 0-{pawns.Count - 1}");
+                return;
+            }
 
+            int previousActivePlayer = activePlayerIndex;
+            
             // Deactivate all pawns
             foreach (var pawn in pawns)
                 pawn.isActive = false;
@@ -324,7 +330,7 @@ namespace WallChess
             activePlayerIndex = playerIndex;
             pawns[activePlayerIndex].isActive = true;
             
-            Debug.Log($"Active player set to: {activePlayerIndex}");
+            Debug.Log($"SetActivePlayer: Changed from {previousActivePlayer} to {activePlayerIndex}. Pawn.isActive = {pawns[activePlayerIndex].isActive}");
         }
 
         public PawnData GetActivePawn()
@@ -512,6 +518,9 @@ namespace WallChess
                 return;
             }
 
+            // ENHANCED DEBUG: Track activePlayerIndex changes
+            int previousPlayer = activePlayerIndex;
+            
             // Switch to next player
             int nextPlayer = (activePlayerIndex + 1) % pawns.Count;
             SetActivePlayer(nextPlayer);
@@ -519,7 +528,7 @@ namespace WallChess
             // Return to turn state
             ChangeState(GameState.PlayerTurn);
             
-            Debug.Log($"Turn ended. Now it's Player {activePlayerIndex}'s turn.");
+            Debug.Log($"Turn ended. Previous player: {previousPlayer}, New active player: {activePlayerIndex}, Total players: {pawns.Count}");
         }
 
         public bool TryStartWallPlacement()
@@ -543,6 +552,8 @@ namespace WallChess
 
         public void CompleteWallPlacement(bool wallWasPlaced = true)
         {
+            Debug.Log($"CompleteWallPlacement called: wallWasPlaced={wallWasPlaced}, activePlayer={activePlayerIndex}, debugMode={debugMode}");
+            
             if (debugMode)
             {
                 Debug.Log($"Debug Mode: Wall placement completed (success: {wallWasPlaced})");
@@ -551,7 +562,7 @@ namespace WallChess
 
             if (wallWasPlaced)
             {
-                Debug.Log("Wall placement successful - ending turn");
+                Debug.Log($"CompleteWallPlacement: Wall placement successful - calling EndTurn() for activePlayer {activePlayerIndex}");
                 EndTurn(); // Switch to next player after successful wall placement
             }
             else
@@ -569,7 +580,7 @@ namespace WallChess
 
         private void OnWallPlaced(GridSystem.WallInfo wallInfo)
         {
-            Debug.Log($"Wall placed: {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y})");
+            Debug.Log($"OnWallPlaced EVENT: Wall {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y}) - Current activePlayer: {activePlayerIndex}");
             
             // In debug mode, don't decrement walls or change state
             if (debugMode)
@@ -583,10 +594,11 @@ namespace WallChess
             if (activePawn != null)
             {
                 activePawn.wallsRemaining--;
-                Debug.Log($"Player {activePlayerIndex} walls remaining: {activePawn.wallsRemaining}");
+                Debug.Log($"OnWallPlaced: Player {activePlayerIndex} walls remaining: {activePawn.wallsRemaining}");
             }
 
             // Complete wall placement and handle turn transition
+            Debug.Log($"OnWallPlaced: About to call CompleteWallPlacement(true) for activePlayer {activePlayerIndex}");
             CompleteWallPlacement(true);
         }
 

@@ -84,10 +84,12 @@ namespace WallChess
             if (wallInfo.HasValue && ValidateWallPlacement(wallInfo.Value))
             {
                 Commit(wallInfo.Value);
-                gameManager.CompleteWallPlacement(true);
                 orientationLock = null; // Reset after placement
+                Debug.Log($"TryPlaceWall: Wall committed successfully - turn ending handled by event system");
                 return true;
             }
+            
+            // Only call CompleteWallPlacement for failed attempts
             gameManager.CompleteWallPlacement(false);
             return false;
         }
@@ -122,6 +124,7 @@ namespace WallChess
             {
                 Commit(wallInfo.Value);
                 success = true;
+                Debug.Log($"Wall placement committed successfully at {wallInfo.Value.orientation} ({wallInfo.Value.x},{wallInfo.Value.y})");
             }
             else if (wallInfo.HasValue)
             {
@@ -129,7 +132,14 @@ namespace WallChess
             }
             
             visuals.CleanupPreview();
-            gameManager.CompleteWallPlacement(success);
+            
+            // FIXED: Don't call CompleteWallPlacement here - it's handled by OnWallPlaced event
+            // This prevents double calls to EndTurn() which was causing activePlayerIndex issues
+            if (!success)
+            {
+                // Only handle failed placements here - successful ones are handled by event system
+                gameManager.CompleteWallPlacement(false);
+            }
         }
 
         // Wall info structure for unified system
@@ -154,6 +164,8 @@ namespace WallChess
         /// </summary>
         void Commit(UnifiedWallInfo info)
         {
+            Debug.Log($"Commit: Attempting to place wall {info.orientation} at ({info.x},{info.y}) for activePlayer {gameManager.GetActivePawnIndex()}");
+            
             // Final validation before commitment
             if (!ValidateWallPlacement(info))
             {
@@ -170,13 +182,14 @@ namespace WallChess
             GameObject wallObj = visuals.CreateWall(info.worldPosition, scale, rotation, prefabToUse);
             
             // Attempt to place wall in grid system (single source of truth)
+            Debug.Log($"Commit: About to call wallManager.PlaceWall() - this should trigger OnWallPlaced event");
             bool placed = wallManager.PlaceWall(info.orientation, info.x, info.y, info.worldPosition, scale);
             
             if (placed)
             {
                 wallManager.AddManagedWall(wallObj);
-                Debug.Log($"Wall successfully placed at {info.orientation} {info.x},{info.y} with rotation {rotation.eulerAngles}");
-                // OnWallPlaced event will be triggered automatically, which handles wall count decrementation
+                Debug.Log($"Commit: Wall successfully placed at {info.orientation} {info.x},{info.y} with rotation {rotation.eulerAngles}");
+                // OnWallPlaced event will be triggered automatically, which handles wall count decrementation and turn ending
             }
             else
             {

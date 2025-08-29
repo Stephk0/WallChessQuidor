@@ -348,7 +348,16 @@ namespace WallChess
             worldPos = GetWallWorldPosition(orientation, x, y);
             
             var wallInfo = new GridSystem.WallInfo(orientation, x, y, worldPos, scale);
-            return gridSystem.PlaceWall(wallInfo);
+            bool placed = gridSystem.PlaceWall(wallInfo);
+            
+            // Turn ending is handled automatically by GridSystem.OnWallPlaced event
+            // which triggers gameManager.OnWallPlaced -> CompleteWallPlacement(true) -> EndTurn()
+            if (placed)
+            {
+                Debug.Log($"Wall placed successfully at {orientation} ({x},{y}) - turn will end via event system");
+            }
+            
+            return placed;
         }
         
         /// <summary>

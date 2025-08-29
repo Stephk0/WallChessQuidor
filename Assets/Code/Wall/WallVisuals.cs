@@ -38,22 +38,32 @@ namespace WallChess
                 // Use actual prefab for preview in production mode
                 preview = GameObject.Instantiate(prefab);
                 preview.name = "WallPreview_Prefab";
+                
+                previewRenderer = preview.GetComponent<Renderer>();
+                if (previewRenderer != null)
+                {
+                    if (mat != null)
+                    {
+                        previewRenderer.material = mat;
+                    }
+                    previewRenderer.material.color = placing;
+                }
             }
             else
             {
-                // Use primitive cube for debug mode or when no prefab available
+                // Debug mode: Create single preview cube (segments will be created on placement)
                 preview = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 preview.name = "WallPreview_Debug";
-            }
-            
-            previewRenderer = preview.GetComponent<Renderer>();
-            if (previewRenderer != null)
-            {
-                if (mat != null)
+                
+                previewRenderer = preview.GetComponent<Renderer>();
+                if (previewRenderer != null)
                 {
-                    previewRenderer.material = mat;
+                    if (mat != null)
+                    {
+                        previewRenderer.material = mat;
+                    }
+                    previewRenderer.material.color = placing;
                 }
-                previewRenderer.material.color = placing;
             }
             
             var col = preview.GetComponent<Collider>();
@@ -131,6 +141,13 @@ namespace WallChess
         // Enhanced overload for new rotation-based prefab system
         public GameObject CreateWall(Vector3 position, Vector3 scale, Quaternion rotation, GameObject wallPrefab = null)
         {
+            if (wallManager != null && wallManager.IsDebugMode())
+            {
+                // Debug mode: Create 3 separate boxes for wall segments and intersection
+                return CreateDebugWallSegments(position, scale, rotation);
+            }
+            
+            // Production mode: Use prefab with rotation
             GameObject prefabToUse = wallPrefab ?? prefab;
             var go = prefabToUse != null ? GameObject.Instantiate(prefabToUse) : GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = "Wall_Prefab";
@@ -147,6 +164,111 @@ namespace WallChess
             }
             spawned.Add(go);
             return go;
+        }
+        
+        /// <summary>
+        /// Creates 3 separate debug boxes: 2 wall segments + 1 intersection
+        /// Uses the same scaling logic as the working single preview box
+        /// </summary>
+        private GameObject CreateDebugWallSegments(Vector3 centerPosition, Vector3 wallScale, Quaternion rotation)
+        {
+            // Create parent object to hold all segments
+            GameObject wallParent = new GameObject("DebugWall_Segments");
+            wallParent.transform.position = centerPosition;
+            wallParent.tag = "Wall";
+            
+            // Get grid settings for positioning calculations
+            var gridSettings = wallManager.GetGridSystem().GetGridSettings();
+            float tileSize = gridSettings.tileSize;
+            float tileGap = gridSettings.tileGap;
+            float spacing = tileSize + tileGap;
+            
+            // Determine orientation from the wallScale (same logic as GetWallScale)
+            bool isHorizontal = wallScale.x > wallScale.y;
+            
+            Vector3[] segmentPositions = new Vector3[3];
+            Vector3[] segmentScales = new Vector3[3];
+            
+            if (isHorizontal)
+            {
+                // Horizontal wall: divide the working scale into 3 parts
+                float gapWidth = wallScale.y; // Use the working thickness
+                float gapLength = (wallScale.x - gapWidth) / 2f; // Each gap gets half the length minus intersection
+                
+                // Scales: 2 gap segments + 1 square intersection
+                Vector3 gapScale = new Vector3(gapLength, gapWidth, wallScale.z);
+                Vector3 intersectionScale = new Vector3(gapWidth, gapWidth, wallScale.z);
+                
+                // Positions: spread along X axis
+                float offset = gapLength / 2f + gapWidth / 2f;
+                segmentPositions[0] = new Vector3(-offset, 0, 0); // Left gap
+                segmentPositions[1] = new Vector3(0, 0, 0);       // Center intersection
+                segmentPositions[2] = new Vector3(offset, 0, 0);  // Right gap
+                
+                segmentScales[0] = gapScale;
+                segmentScales[1] = intersectionScale;
+                segmentScales[2] = gapScale;
+            }
+            else
+            {
+                // Vertical wall: divide the working scale into 3 parts
+                float gapWidth = wallScale.x; // Use the working thickness
+                float gapLength = (wallScale.y - gapWidth) / 2f; // Each gap gets half the length minus intersection
+                
+                // Scales: 2 gap segments + 1 square intersection
+                Vector3 gapScale = new Vector3(gapWidth, gapLength, wallScale.z);
+                Vector3 intersectionScale = new Vector3(gapWidth, gapWidth, wallScale.z);
+                
+                // Positions: spread along Y axis
+                float offset = gapLength / 2f + gapWidth / 2f;
+                segmentPositions[0] = new Vector3(0, -offset, 0); // Bottom gap
+                segmentPositions[1] = new Vector3(0, 0, 0);       // Center intersection
+                segmentPositions[2] = new Vector3(0, offset, 0);  // Top gap
+                
+                segmentScales[0] = gapScale;
+                segmentScales[1] = intersectionScale;
+                segmentScales[2] = gapScale;
+            }
+            
+            // Create the 3 boxes with proper positioning and scaling
+            for (int i = 0; i < 3; i++)
+            {
+                GameObject segment = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                segment.transform.SetParent(wallParent.transform);
+                segment.transform.localPosition = segmentPositions[i];
+                segment.transform.localScale = segmentScales[i];
+                
+                if (i == 1)
+                {
+                    segment.name = "Intersection";
+                }
+                else
+                {
+                    segment.name = $"GapSegment_{i}";
+                }
+                
+                // Apply material and color
+                var renderer = segment.GetComponent<Renderer>();
+                if (renderer != null)
+                {
+                    if (mat != null)
+                    {
+                        renderer.material = mat;
+                    }
+                    else
+                    {
+                        // Different colors for segments vs intersection
+                        renderer.material.color = i == 1 ? Color.red : Color.yellow;
+                    }
+                }
+                
+                // Remove colliders to avoid interference
+                var col = segment.GetComponent<Collider>();
+                if (col) WallState.SafeDestroy(col);
+            }
+            
+            spawned.Add(wallParent);
+            return wallParent;
         }
 
         public void DestroyAll()
