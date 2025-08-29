@@ -5,8 +5,8 @@ using WallChess.Grid;
 namespace WallChess
 {
     /// <summary>
-    /// Thin orchestrator MonoBehaviour that wires together subsystems.
-    /// Now properly integrates with GridSystem alignment.
+    /// Unified WallManager that uses GridSystem as single source of truth for occupancy.
+    /// No more dual tracking systems - everything goes through GridSystem.
     /// </summary>
     public class WallManager : MonoBehaviour
     {
@@ -22,24 +22,23 @@ namespace WallChess
 
         [Header("Snap & Lanes")]
         [SerializeField] private float gapSnapMargin = 0.25f;
-        [SerializeField] private float laneSnapMargin = 0.3f;
-        [SerializeField] private float unlockMultiplier = 1.5f;
+        [SerializeField] private float laneSnapMargin = 0.5f;  // Increased for new intersection approach
+        [SerializeField] private float unlockMultiplier = 1.8f; // Balanced for smooth orientation switching
 
         private WallChessGameManager gameManager;
-        private GridSystem grid;
+        private GridSystem gridSystem;
         private GridCoordinateConverter coordinateConverter;
-        private WallState state;
-        private GapDetector gaps;
         private WallValidator validator;
         private WallVisuals visuals;
         private WallPlacementController placement;
+        private List<GameObject> managedWalls = new List<GameObject>();
 
-        public void Initialize(WallChessGameManager gm) // force recompile
+        public void Initialize(WallChessGameManager gm)
         {
             gameManager = gm;
-            grid = gameManager != null ? gameManager.GetGridSystem() : null;
+            gridSystem = gameManager != null ? gameManager.GetGridSystem() : null;
 
-            if (grid == null)
+            if (gridSystem == null)
             {
                 Debug.LogError("WallManager: GridSystem not found! WallManager requires GridSystem to be initialized first.");
                 return;
@@ -53,18 +52,12 @@ namespace WallChess
                 return;
             }
 
-            float spacing = grid.GetTileSpacing();
-            state = new WallState(
-                () => gameManager?.gridSize ?? 8,
-                spacing,
-                coordinateConverter
-            );
-
-            gaps = new GapDetector(state, laneSnapMargin, unlockMultiplier, gapSnapMargin);
-            validator = new WallValidator(state, gameManager);
+            // Initialize unified systems that use GridSystem as source of truth
+            validator = new WallValidator(gridSystem, gameManager);
             visuals = new WallVisuals(wallPrefab, wallMaterial, validPreviewColor, invalidPreviewColor, placingPreviewColor);
+            placement = new WallPlacementController(this, gameManager, gridSystem, validator, visuals, placementPlaneZ);
 
-            placement = new WallPlacementController(gameManager, state, gaps, validator, visuals, placementPlaneZ);
+            Debug.Log("WallManager initialized with unified GridSystem integration");
         }
 
         /// <summary>
@@ -78,12 +71,12 @@ namespace WallChess
             
             if (field != null)
             {
-                return (GridCoordinateConverter)field.GetValue(grid);
+                return (GridCoordinateConverter)field.GetValue(gridSystem);
             }
 
             // Fallback: create our own converter using grid settings
-            var settings = grid.GetGridSettings();
-            var alignment = grid.GetGridAlignment();
+            var settings = gridSystem.GetGridSettings();
+            var alignment = gridSystem.GetGridAlignment();
             return new GridCoordinateConverter(settings.TileSpacing, settings.gridSize, alignment);
         }
 
@@ -94,8 +87,45 @@ namespace WallChess
             // debug hooks kept from original
             if (Input.GetKeyDown(KeyCode.Y)) placement.RunAutomaticWallTest();
             if (Input.GetKeyDown(KeyCode.T)) placement.TestWallBlocking();
+            if (Input.GetKeyDown(KeyCode.G)) TestGapDetection(); // New gap detection test
 
             placement.Tick();
+        }
+        
+        /// <summary>
+        /// Test gap detection and lane system
+        /// </summary>
+        private void TestGapDetection()
+        {
+            Debug.Log("=== GAP DETECTION TEST ===");
+            
+            Vector3 mouseWorld = GetMouseWorld();
+            Debug.Log($"Mouse world position: {mouseWorld}");
+            
+            // Test lane detection with current settings
+            Debug.Log($"Current lane settings: laneSnapMargin={laneSnapMargin}, unlockMultiplier={unlockMultiplier}");
+            
+            // Simulate gap detection at mouse position
+            var testWallInfo = placement.FindNearestWallGap(mouseWorld);
+            if (testWallInfo.HasValue)
+            {
+                Debug.Log($"Nearest wall gap: {testWallInfo.Value.orientation} at ({testWallInfo.Value.x},{testWallInfo.Value.y})");
+                Debug.Log($"Gap world position: {testWallInfo.Value.worldPosition}");
+            }
+            else
+            {
+                Debug.Log("No wall gap found at mouse position");
+            }
+        }
+        
+        private Vector3 GetMouseWorld()
+        {
+            var cam = Camera.main;
+            if (!cam) return Vector3.zero;
+            var ray = cam.ScreenPointToRay(Input.mousePosition);
+            var plane = new Plane(Vector3.forward, new Vector3(0, 0, placementPlaneZ));
+            return plane.Raycast(ray, out float enter) ? ray.GetPoint(enter)
+                 : cam.ScreenToWorldPoint(new Vector3(Input.mousePosition.x, Input.mousePosition.y, Mathf.Abs(cam.transform.position.z - placementPlaneZ)));
         }
 
         public bool TryPlaceWall(Vector3 worldPosition) => placement.TryPlaceWall(worldPosition);
@@ -103,7 +133,29 @@ namespace WallChess
         public void ClearAllWalls()
         {
             visuals.DestroyAll();
-            state.ClearAll(grid, gameManager);
+            
+            // Clear managed walls
+            for (int i = managedWalls.Count - 1; i >= 0; i--)
+            {
+                var wall = managedWalls[i];
+                if (wall != null)
+                {
+                    WallState.SafeDestroy(wall);
+                }
+            }
+            managedWalls.Clear();
+            
+            // Reset player walls
+            if (gameManager != null)
+            {
+                foreach (var pawn in gameManager.pawns)
+                {
+                    pawn.wallsRemaining = gameManager.wallsPerPlayer;
+                }
+            }
+            
+            // Clear grid occupancy
+            gridSystem?.ClearGrid();
         }
 
         void OnDestroy()
@@ -112,11 +164,156 @@ namespace WallChess
             ClearAllWalls();
         }
 
+        // Public API for wall management
+        public void AddManagedWall(GameObject wall)
+        {
+            managedWalls.Add(wall);
+        }
+        
+        public bool CanPlaceWall(GridSystem.Orientation orientation, int x, int y)
+        {
+            // Apply boundary constraints first
+            Vector2Int constrainedPos = ApplyBoundaryConstraints(orientation, x, y);
+            return gridSystem.CanPlaceWall(orientation, constrainedPos.x, constrainedPos.y);
+        }
+        
+        public bool PlaceWall(GridSystem.Orientation orientation, int x, int y, Vector3 worldPos, Vector3 scale)
+        {
+            // Apply boundary constraints first
+            Vector2Int constrainedPos = ApplyBoundaryConstraints(orientation, x, y);
+            x = constrainedPos.x;
+            y = constrainedPos.y;
+            
+            // Recalculate world position with constrained coordinates
+            worldPos = GetWallWorldPosition(orientation, x, y);
+            
+            var wallInfo = new GridSystem.WallInfo(orientation, x, y, worldPos, scale);
+            return gridSystem.PlaceWall(wallInfo);
+        }
+        
+        /// <summary>
+        /// Apply boundary constraints to ensure walls are always 2 units long and within bounds
+        /// </summary>
+        private Vector2Int ApplyBoundaryConstraints(GridSystem.Orientation orientation, int x, int y)
+        {
+            int gridSize = gridSystem.GetGridSize();
+            
+            if (orientation == GridSystem.Orientation.Horizontal)
+            {
+                // Horizontal walls need 2 tiles horizontally (x spans from x to x+1)
+                // Max x position is gridSize-2 to ensure x+1 is still within bounds
+                int maxX = gridSize - 2;
+                x = Mathf.Clamp(x, 0, maxX);
+                
+                // Horizontal walls can be placed at any y position from 0 to gridSize-2
+                // (they separate row y from row y+1)
+                int maxY = gridSize - 2;
+                y = Mathf.Clamp(y, 0, maxY);
+            }
+            else // Vertical
+            {
+                // Vertical walls can be placed at any x position from 0 to gridSize-2  
+                // (they separate column x from column x+1)
+                int maxX = gridSize - 2;
+                x = Mathf.Clamp(x, 0, maxX);
+                
+                // Vertical walls need 2 tiles vertically (y spans from y to y+1)
+                // Max y position is gridSize-2 to ensure y+1 is still within bounds
+                int maxY = gridSize - 2;
+                y = Mathf.Clamp(y, 0, maxY);
+            }
+            
+            return new Vector2Int(x, y);
+        }
+        
+        public Vector3 GetWallWorldPosition(GridSystem.Orientation orientation, int x, int y)
+        {
+            // Apply boundary constraints first to ensure walls stay within bounds
+            Vector2Int constrainedPos = ApplyBoundaryConstraints(orientation, x, y);
+            x = constrainedPos.x;
+            y = constrainedPos.y;
+            
+            // Calculate the exact intersection point between the two tiles the wall separates
+            if (orientation == GridSystem.Orientation.Horizontal)
+            {
+                // Horizontal wall separates tiles vertically (between y and y+1 rows)
+                // Wall should be positioned at the intersection point, spanning 2 tiles horizontally (x to x+1)
+                Vector2Int tile1 = new Vector2Int(x, y);       // Bottom-left tile
+                Vector2Int tile2 = new Vector2Int(x + 1, y + 1); // Top-right tile
+                Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
+                Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
+                
+                // Position wall at the horizontal center of the 2-tile span, at the intersection between rows
+                Vector3 wallPos = new Vector3(
+                    (pos1.x + pos2.x) / 2f,  // Center horizontally between x and x+1 tiles
+                    (pos1.y + pos2.y) / 2f,  // Center vertically between y and y+1 tiles (intersection)
+                    0f
+                );
+                return wallPos;
+            }
+            else
+            {
+                // Vertical wall separates tiles horizontally (between x and x+1 columns)
+                // Wall should be positioned at the intersection point, spanning 2 tiles vertically (y to y+1)
+                Vector2Int tile1 = new Vector2Int(x, y);       // Bottom-left tile
+                Vector2Int tile2 = new Vector2Int(x + 1, y + 1); // Top-right tile
+                Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
+                Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
+                
+                // Position wall at the vertical center of the 2-tile span, at the intersection between columns
+                Vector3 wallPos = new Vector3(
+                    (pos1.x + pos2.x) / 2f,  // Center horizontally between x and x+1 tiles (intersection)
+                    (pos1.y + pos2.y) / 2f,  // Center vertically between y and y+1 tiles
+                    0f
+                );
+                return wallPos;
+            }
+        }
+        
+        public Vector3 GetWallScale(GridSystem.Orientation orientation)
+        {
+            var settings = gridSystem.GetGridSettings();
+            
+            // Wall spans exactly 2 tiles plus the gap between them
+            float wallLength = (settings.tileSize * 2f) + settings.tileGap;
+            
+            if (orientation == GridSystem.Orientation.Horizontal)
+            {
+                // Horizontal wall: length in X direction, thickness in Y direction
+                return new Vector3(wallLength, settings.wallThickness, settings.wallHeight);
+            }
+            else
+            {
+                // Vertical wall: thickness in X direction, length in Y direction
+                return new Vector3(settings.wallThickness, wallLength, settings.wallHeight);
+            }
+        }
+
         // Public accessors for AI integration
-        public GapDetector GetGapDetector() => gaps;
         public WallValidator GetWallValidator() => validator;
-        public WallState GetWallState() => state;
         public WallVisuals GetWallVisuals() => visuals;
         public WallPlacementController GetPlacementController() => placement;
+        public GridSystem GetGridSystem() => gridSystem;
+        public List<GameObject> GetManagedWalls() => managedWalls;
+        
+        // Public accessors for gap detection settings (for WallPlacementController)
+        public float GetGapSnapMargin() => gapSnapMargin;
+        public float GetLaneSnapMargin() => laneSnapMargin;
+        public float GetUnlockMultiplier() => unlockMultiplier;
+        
+        // Legacy compatibility methods for AIOpponent
+        [System.Obsolete("Use GetGridSystem().CanPlaceWall() instead")]
+        public GapDetector GetGapDetector() 
+        {
+            Debug.LogWarning("GetGapDetector() is obsolete. Update AIOpponent to use unified GridSystem API.");
+            return null; // Return null to force update to new API
+        }
+        
+        [System.Obsolete("Use GetGridSystem() instead")]
+        public WallState GetWallState()
+        {
+            Debug.LogWarning("GetWallState() is obsolete. Update AIOpponent to use unified GridSystem API.");
+            return null; // Return null to force update to new API
+        }
     }
 }

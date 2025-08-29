@@ -4,140 +4,109 @@ using System.Collections.Generic;
 namespace WallChess
 {
     /// <summary>
-    /// Validates wall placements and path constraints.
+    /// Validates wall placements and path constraints using GridSystem.
     /// </summary>
     public class WallValidator
     {
-        private readonly WallState s;
-        private readonly WallChessGameManager gm;
+        private readonly GridSystem gridSystem;
+        private readonly WallChessGameManager gameManager;
 
-        public WallValidator(WallState state, WallChessGameManager gameManager)
+        public WallValidator(GridSystem grid, WallChessGameManager gm)
         {
-            s = state; gm = gameManager;
+            gridSystem = grid;
+            gameManager = gm;
         }
 
-        public bool CanPlace(GapDetector.WallInfo w)
+        public bool CanPlace(GridSystem.Orientation orientation, int x, int y)
         {
-            if (gm == null) return false;
-            if (!gm.CanPlaceWalls()) return false;
-            if (!gm.CurrentPlayerHasWalls()) return false;
+            if (gameManager == null) return false;
+            if (!gameManager.CanPlaceWalls()) return false;
+            if (!gameManager.CurrentPlayerHasWalls()) return false;
 
-            if (w.orientation == WallState.Orientation.Horizontal)
-            {
-                if (w.x < 0 || w.x + 1 >= s.HCols || w.y < 0 || w.y >= s.HRows) return false;
-                if (s.IsOccupied(WallState.Orientation.Horizontal, w.x, w.y)) return false;
-                if (s.IsOccupied(WallState.Orientation.Horizontal, w.x + 1, w.y)) return false;
-            }
-            else
-            {
-                if (w.x < 0 || w.x >= s.VCols || w.y < 0 || w.y + 1 >= s.VRows) return false;
-                if (s.IsOccupied(WallState.Orientation.Vertical, w.x, w.y)) return false;
-                if (s.IsOccupied(WallState.Orientation.Vertical, w.x, w.y + 1)) return false;
-            }
+            // Check basic placement validity
+            if (!gridSystem.CanPlaceWall(orientation, x, y)) return false;
 
-            if (WouldCross(w)) return false;
-            if (WouldBlockPaths(w)) return false;
+            // Check if wall would cross existing walls
+            if (WouldCross(orientation, x, y)) return false;
+            
+            // Check if wall would block all paths for any player
+            if (WouldBlockPaths(orientation, x, y)) return false;
 
             return true;
         }
+        
+        // Legacy method for compatibility with GapDetector.WallInfo
+        public bool CanPlace(GapDetector.WallInfo w)
+        {
+            return CanPlace(
+                w.orientation == WallState.Orientation.Horizontal ? GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical,
+                w.x, w.y
+            );
+        }
 
+        bool WouldCross(GridSystem.Orientation orientation, int x, int y)
+        {
+            // With intersection tracking in GridSystem.CanPlaceWall(), crossing is automatically detected
+            // This method is now primarily for legacy compatibility
+            return false; // CanPlaceWall() handles intersection checking
+        }
+        
+        // Legacy method for compatibility
         bool WouldCross(GapDetector.WallInfo w)
         {
-            int x = w.x; int y = w.y;
-            if (w.orientation == WallState.Orientation.Horizontal)
-            {
-                if (y + 1 >= s.VRows) return false;
-                return s.IsOccupied(WallState.Orientation.Vertical, x, y) &&
-                       s.IsOccupied(WallState.Orientation.Vertical, x, y + 1);
-            }
-            else
-            {
-                if (x + 1 >= s.HCols) return false;
-                return s.IsOccupied(WallState.Orientation.Horizontal, x, y) &&
-                       s.IsOccupied(WallState.Orientation.Horizontal, x + 1, y);
-            }
+            return WouldCross(
+                w.orientation == WallState.Orientation.Horizontal ? GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical,
+                w.x, w.y
+            );
         }
 
+        bool WouldBlockPaths(GridSystem.Orientation orientation, int x, int y)
+        {
+            // Double check: Don't even test if wall can't be placed
+            if (!gridSystem.CanPlaceWall(orientation, x, y))
+                return true; // Already blocked/occupied
+            
+            // Temporarily place the wall in GridSystem WITHOUT triggering events
+            Vector3 dummyPos = Vector3.zero;
+            Vector3 dummyScale = Vector3.one;
+            var wallInfo = new GridSystem.WallInfo(orientation, x, y, dummyPos, dummyScale);
+            
+            // FIXED: Place wall temporarily without triggering OnWallPlaced event
+            bool placed = gridSystem.PlaceWall(wallInfo, false); // false = don't trigger events
+            if (!placed) 
+            {
+                Debug.LogWarning($"WouldBlockPaths: Failed to place temporary wall at {orientation} ({x},{y}) - this should not happen after CanPlaceWall check");
+                return true; // Can't place means blocked
+            }
+
+            // Test if both players still have paths to their goals
+            bool playerHasPath = gridSystem.PathExists(gameManager.playerPosition, GetPlayerGoalPosition(true));
+            bool opponentHasPath = gridSystem.PathExists(gameManager.opponentPosition, GetPlayerGoalPosition(false));
+
+            // FIXED: Remove temporary wall using the new GridSystem method
+            gridSystem.RemoveWallOccupancy(orientation, x, y);
+
+            return !(playerHasPath && opponentHasPath);
+        }
+        
+        // Legacy method for compatibility  
         bool WouldBlockPaths(GapDetector.WallInfo w)
         {
-            // temp occupy
-            Occupy(w, true);
-            bool a = HasPathToGoal(gm.playerPosition, true);
-            bool b = HasPathToGoal(gm.opponentPosition, false);
-            Occupy(w, false);
-            return !(a && b);
+            return WouldBlockPaths(
+                w.orientation == WallState.Orientation.Horizontal ? GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical,
+                w.x, w.y
+            );
         }
-
-        void Occupy(GapDetector.WallInfo w, bool on)
+        
+        // REMOVED: ClearTemporaryWall method - now using GridSystem.RemoveWallOccupancy()
+        
+        private Vector2Int GetPlayerGoalPosition(bool isPlayer)
         {
-            if (w.orientation == WallState.Orientation.Horizontal)
-            {
-                s.SetOccupied(WallState.Orientation.Horizontal, w.x, w.y, on);
-                s.SetOccupied(WallState.Orientation.Horizontal, w.x + 1, w.y, on);
-            }
-            else
-            {
-                s.SetOccupied(WallState.Orientation.Vertical, w.x, w.y, on);
-                s.SetOccupied(WallState.Orientation.Vertical, w.x, w.y + 1, on);
-            }
+            int goalY = isPlayer ? gameManager.gridSize - 1 : 0;
+            return new Vector2Int(gameManager.gridSize / 2, goalY);
         }
 
-        bool HasPathToGoal(Vector2Int start, bool isPlayer)
-        {
-            int goalY = isPlayer ? gm.gridSize - 1 : 0;
-            var q = new Queue<Vector2Int>();
-            var seen = new HashSet<Vector2Int>();
-            q.Enqueue(start); seen.Add(start);
-            Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-
-            while (q.Count > 0)
-            {
-                var cur = q.Dequeue();
-                if (cur.y == goalY) return true;
-                foreach (var d in dirs)
-                {
-                    var next = cur + d;
-                    if (next.x < 0 || next.x >= gm.gridSize || next.y < 0 || next.y >= gm.gridSize) continue;
-                    if (seen.Contains(next)) continue;
-                    if (IsBlocked(cur, next)) continue;
-                    q.Enqueue(next); seen.Add(next);
-                }
-            }
-            return false;
-        }
-
-        bool IsBlocked(Vector2Int from, Vector2Int to)
-        {
-            var diff = to - from;
-            if (diff.y == 1) return IsHBlocking(from.x, from.y);        // up
-            if (diff.y == -1) return IsHBlocking(from.x, to.y);          // down
-            if (diff.x == 1) return IsVBlocking(from.x, from.y);         // right
-            if (diff.x == -1) return IsVBlocking(to.x, from.y);          // left
-            return false;
-        }
-
-        bool IsHBlocking(int gapX, int gapY)
-        {
-            if (gapX < 0 || gapY < 0 || gapY >= s.HRows) return false;
-            if (gapX + 1 < s.HCols &&
-                s.IsOccupied(WallState.Orientation.Horizontal, gapX, gapY) &&
-                s.IsOccupied(WallState.Orientation.Horizontal, gapX + 1, gapY)) return true;
-            if (gapX - 1 >= 0 &&
-                s.IsOccupied(WallState.Orientation.Horizontal, gapX - 1, gapY) &&
-                s.IsOccupied(WallState.Orientation.Horizontal, gapX, gapY)) return true;
-            return false;
-        }
-
-        bool IsVBlocking(int gapX, int gapY)
-        {
-            if (gapX < 0 || gapY < 0 || gapX >= s.VCols) return false;
-            if (gapY + 1 < s.VRows &&
-                s.IsOccupied(WallState.Orientation.Vertical, gapX, gapY) &&
-                s.IsOccupied(WallState.Orientation.Vertical, gapX, gapY + 1)) return true;
-            if (gapY - 1 >= 0 &&
-                s.IsOccupied(WallState.Orientation.Vertical, gapX, gapY - 1) &&
-                s.IsOccupied(WallState.Orientation.Vertical, gapX, gapY)) return true;
-            return false;
-        }
+        // Removed old pathfinding methods - now using GridSystem.PathExists() and GridSystem.FindPath()
+        // This provides better integration with the unified grid system
     }
 }

@@ -94,7 +94,7 @@ namespace WallChess
         #region Components
         private GridCoordinateConverter coordinateConverter;
         private GridUIManager uiManager;
-        private GridCell[,] unifiedGrid;
+        public GridCell[,] unifiedGrid;
         private int fullGridSize; // Will be gridSize * 2 + 1 to accommodate tiles and gaps
         #endregion
 
@@ -332,15 +332,23 @@ namespace WallChess
                 Vector2Int targetUnified = currentUnified + dir;
                 Vector2Int gapUnified = currentUnified + (dir / 2); // Gap between current and target
                 
-                // Check if target is valid tile and not occupied
+                // FIXED: Check if target is within tile bounds, not just unified grid bounds
+                Vector2Int targetTilePos = UnifiedToTilePosition(targetUnified);
+                
+                // Check tile bounds properly (0 to gridSize-1)
+                if (targetTilePos.x < 0 || targetTilePos.x >= gridSettings.gridSize ||
+                    targetTilePos.y < 0 || targetTilePos.y >= gridSettings.gridSize)
+                    continue;
+                
+                // Check if target unified position is valid and is a tile
                 if (IsValidUnifiedPosition(targetUnified) && 
                     unifiedGrid[targetUnified.x, targetUnified.y].IsTile &&
                     !unifiedGrid[targetUnified.x, targetUnified.y].isOccupied)
                 {
                     // Check if gap is not blocked by wall
-                    if (!unifiedGrid[gapUnified.x, gapUnified.y].isOccupied)
+                    if (IsValidUnifiedPosition(gapUnified) && !unifiedGrid[gapUnified.x, gapUnified.y].isOccupied)
                     {
-                        validMoves.Add(UnifiedToTilePosition(targetUnified));
+                        validMoves.Add(targetTilePos);
                     }
                 }
             }
@@ -360,55 +368,75 @@ namespace WallChess
 
         public bool CanPlaceWall(Orientation orientation, int x, int y)
         {
-            // Wall occupies 2 consecutive gaps
+            // Wall occupies 2 consecutive gaps and passes through an intersection
             if (orientation == Orientation.Horizontal)
             {
-                // Check both horizontal gaps
+                // Check both horizontal gaps and intersection
                 Vector2Int gap1 = new Vector2Int(x * 2, y * 2 + 1);
                 Vector2Int gap2 = new Vector2Int(x * 2 + 2, y * 2 + 1);
+                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
                 
-                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2))
+                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2) || !IsValidUnifiedPosition(intersection))
                     return false;
                     
                 return !unifiedGrid[gap1.x, gap1.y].isOccupied && 
-                       !unifiedGrid[gap2.x, gap2.y].isOccupied;
+                       !unifiedGrid[gap2.x, gap2.y].isOccupied &&
+                       !unifiedGrid[intersection.x, intersection.y].isOccupied;
             }
             else // Vertical
             {
-                // Check both vertical gaps
+                // Check both vertical gaps and intersection
                 Vector2Int gap1 = new Vector2Int(x * 2 + 1, y * 2);
                 Vector2Int gap2 = new Vector2Int(x * 2 + 1, y * 2 + 2);
+                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
                 
-                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2))
+                if (!IsValidUnifiedPosition(gap1) || !IsValidUnifiedPosition(gap2) || !IsValidUnifiedPosition(intersection))
                     return false;
                     
                 return !unifiedGrid[gap1.x, gap1.y].isOccupied && 
-                       !unifiedGrid[gap2.x, gap2.y].isOccupied;
+                       !unifiedGrid[gap2.x, gap2.y].isOccupied &&
+                       !unifiedGrid[intersection.x, intersection.y].isOccupied;
             }
         }
 
         public bool PlaceWall(WallInfo wallInfo)
         {
+            return PlaceWall(wallInfo, true); // Default: trigger events
+        }
+        
+        /// <summary>
+        /// FIXED: Place wall with option to suppress events (for temporary validation placements)
+        /// </summary>
+        public bool PlaceWall(WallInfo wallInfo, bool triggerEvents)
+        {
             if (!CanPlaceWall(wallInfo.orientation, wallInfo.x, wallInfo.y))
                 return false;
             
-            // Mark gaps as occupied
+            // Mark gaps and intersection as occupied
             if (wallInfo.orientation == Orientation.Horizontal)
             {
                 Vector2Int gap1 = new Vector2Int(wallInfo.x * 2, wallInfo.y * 2 + 1);
                 Vector2Int gap2 = new Vector2Int(wallInfo.x * 2 + 2, wallInfo.y * 2 + 1);
+                Vector2Int intersection = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 1);
                 unifiedGrid[gap1.x, gap1.y].isOccupied = true;
                 unifiedGrid[gap2.x, gap2.y].isOccupied = true;
+                unifiedGrid[intersection.x, intersection.y].isOccupied = true;
             }
             else // Vertical
             {
                 Vector2Int gap1 = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2);
                 Vector2Int gap2 = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 2);
+                Vector2Int intersection = new Vector2Int(wallInfo.x * 2 + 1, wallInfo.y * 2 + 1);
                 unifiedGrid[gap1.x, gap1.y].isOccupied = true;
                 unifiedGrid[gap2.x, gap2.y].isOccupied = true;
+                unifiedGrid[intersection.x, intersection.y].isOccupied = true;
             }
             
-            OnWallPlaced?.Invoke(wallInfo);
+            // Only trigger events if requested (not for temporary validation placements)
+            if (triggerEvents)
+            {
+                OnWallPlaced?.Invoke(wallInfo);
+            }
             return true;
         }
         
@@ -418,6 +446,33 @@ namespace WallChess
                 return new Vector2Int(x * 2, y * 2 + 1);
             else
                 return new Vector2Int(x * 2 + 1, y * 2);
+        }
+        
+        /// <summary>
+        /// FIXED: Remove wall occupancy without triggering events (for temporary validation cleanup)
+        /// </summary>
+        public void RemoveWallOccupancy(Orientation orientation, int x, int y)
+        {
+            if (orientation == Orientation.Horizontal)
+            {
+                Vector2Int gap1 = new Vector2Int(x * 2, y * 2 + 1);
+                Vector2Int gap2 = new Vector2Int(x * 2 + 2, y * 2 + 1);
+                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
+                
+                if (IsValidUnifiedPosition(gap1)) unifiedGrid[gap1.x, gap1.y].isOccupied = false;
+                if (IsValidUnifiedPosition(gap2)) unifiedGrid[gap2.x, gap2.y].isOccupied = false;
+                if (IsValidUnifiedPosition(intersection)) unifiedGrid[intersection.x, intersection.y].isOccupied = false;
+            }
+            else // Vertical
+            {
+                Vector2Int gap1 = new Vector2Int(x * 2 + 1, y * 2);
+                Vector2Int gap2 = new Vector2Int(x * 2 + 1, y * 2 + 2);
+                Vector2Int intersection = new Vector2Int(x * 2 + 1, y * 2 + 1);
+                
+                if (IsValidUnifiedPosition(gap1)) unifiedGrid[gap1.x, gap1.y].isOccupied = false;
+                if (IsValidUnifiedPosition(gap2)) unifiedGrid[gap2.x, gap2.y].isOccupied = false;
+                if (IsValidUnifiedPosition(intersection)) unifiedGrid[intersection.x, intersection.y].isOccupied = false;
+            }
         }
         #endregion
 

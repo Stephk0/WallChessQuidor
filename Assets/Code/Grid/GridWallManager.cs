@@ -14,10 +14,12 @@ namespace WallChess.Grid
         private List<GridSystem.WallInfo> _placedWalls;
         private HashSet<Vector2Int> _wallIntersections;
         
-        private int HorizontalGapCols => _coordinateConverter.GetGridSize() + 1;
-        private int HorizontalGapRows => _coordinateConverter.GetGridSize();
-        private int VerticalGapCols => _coordinateConverter.GetGridSize();
-        private int VerticalGapRows => _coordinateConverter.GetGridSize() + 1;
+        // Horizontal walls separate rows: gridSize columns, gridSize-1 gap rows
+        private int HorizontalGapCols => _coordinateConverter.GetGridSize();
+        private int HorizontalGapRows => _coordinateConverter.GetGridSize() - 1;
+        // Vertical walls separate columns: gridSize-1 gap columns, gridSize rows  
+        private int VerticalGapCols => _coordinateConverter.GetGridSize() - 1;
+        private int VerticalGapRows => _coordinateConverter.GetGridSize();
 
         public System.Action<GridSystem.WallInfo> OnWallPlaced;
 
@@ -87,12 +89,14 @@ namespace WallChess.Grid
         {
             if (orientation == GridSystem.Orientation.Horizontal)
             {
+                // Horizontal wall spans 2 columns at the given row gap
                 if (x < 0 || x + 1 >= HorizontalGapCols || y < 0 || y >= HorizontalGapRows) return false;
                 if (IsGapOccupied(GridSystem.Orientation.Horizontal, x, y)) return false;
                 if (IsGapOccupied(GridSystem.Orientation.Horizontal, x + 1, y)) return false;
             }
             else
             {
+                // Vertical wall spans 2 rows at the given column gap
                 if (x < 0 || x >= VerticalGapCols || y < 0 || y + 1 >= VerticalGapRows) return false;
                 if (IsGapOccupied(GridSystem.Orientation.Vertical, x, y)) return false;
                 if (IsGapOccupied(GridSystem.Orientation.Vertical, x, y + 1)) return false;
@@ -107,11 +111,13 @@ namespace WallChess.Grid
 
             if (wallInfo.orientation == GridSystem.Orientation.Horizontal)
             {
+                // Horizontal wall occupies 2 adjacent column gaps at this row
                 SetGapOccupied(GridSystem.Orientation.Horizontal, wallInfo.x, wallInfo.y, true);
                 SetGapOccupied(GridSystem.Orientation.Horizontal, wallInfo.x + 1, wallInfo.y, true);
             }
             else
             {
+                // Vertical wall occupies 2 adjacent row gaps at this column
                 SetGapOccupied(GridSystem.Orientation.Vertical, wallInfo.x, wallInfo.y, true);
                 SetGapOccupied(GridSystem.Orientation.Vertical, wallInfo.x, wallInfo.y + 1, true);
             }

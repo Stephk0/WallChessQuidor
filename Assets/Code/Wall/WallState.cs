@@ -105,9 +105,21 @@ namespace WallChess
             Vector3 basePos;
             
             if (o == Orientation.Horizontal)
-                basePos = new Vector3((x + hOffX) * spacing, (y + hOffY) * spacing, 0f);
+            {
+                // Horizontal wall: spans 2 tiles horizontally (x to x+1), positioned at intersection between rows (y and y+1)
+                // Center horizontally between the 2 tiles, position vertically at the gap between rows
+                float centerX = (x + x + 1) * spacing / 2f;  // Center between x and x+1 tiles
+                float gapY = (y + y + 1) * spacing / 2f;     // Gap between y and y+1 rows
+                basePos = new Vector3(centerX, gapY, 0f);
+            }
             else
-                basePos = new Vector3((x + vOffX) * spacing, (y + vOffY) * spacing, 0f);
+            {
+                // Vertical wall: spans 2 tiles vertically (y to y+1), positioned at intersection between columns (x and x+1)
+                // Center vertically between the 2 tiles, position horizontally at the gap between columns
+                float gapX = (x + x + 1) * spacing / 2f;     // Gap between x and x+1 columns
+                float centerY = (y + y + 1) * spacing / 2f;  // Center between y and y+1 tiles
+                basePos = new Vector3(gapX, centerY, 0f);
+            }
 
             // Apply alignment offset if coordinate converter is available
             if (coordinateConverter != null)

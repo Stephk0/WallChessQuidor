@@ -67,6 +67,25 @@ namespace WallChess
             state.AddManaged(go);
             return go;
         }
+        
+        // New overload for unified system that doesn't require WallState
+        public GameObject CreateWall(Vector3 position, Vector3 scale)
+        {
+            var go = prefab != null ? GameObject.Instantiate(prefab) : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = "Wall_Unified";
+            go.transform.position = position;
+            go.transform.localScale = scale;
+            go.tag = "Wall";
+
+            var r = go.GetComponent<Renderer>();
+            if (r != null)
+            {
+                if (mat != null) r.material = mat;
+                else r.material.color = Color.yellow;
+            }
+            spawned.Add(go);
+            return go;
+        }
 
         public void DestroyAll()
         {
