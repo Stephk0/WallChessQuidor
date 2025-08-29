@@ -79,14 +79,22 @@ namespace WallChess
                 return true; // Can't place means blocked
             }
 
-            // Test if both players still have paths to their goals
-            bool playerHasPath = gridSystem.PathExists(gameManager.playerPosition, GetPlayerGoalPosition(true));
-            bool opponentHasPath = gridSystem.PathExists(gameManager.opponentPosition, GetPlayerGoalPosition(false));
+            // FIXED: Test if ALL players still have paths to ANY tile on their target side
+            bool anyPlayerBlocked = false;
+            
+            foreach (var pawn in gameManager.pawns)
+            {
+                if (!HasPathToTargetSide(pawn))
+                {
+                    anyPlayerBlocked = true;
+                    break;
+                }
+            }
 
             // FIXED: Remove temporary wall using the new GridSystem method
             gridSystem.RemoveWallOccupancy(orientation, x, y);
 
-            return !(playerHasPath && opponentHasPath);
+            return anyPlayerBlocked;
         }
         
         // Legacy method for compatibility  
@@ -99,6 +107,114 @@ namespace WallChess
         }
         
         // REMOVED: ClearTemporaryWall method - now using GridSystem.RemoveWallOccupancy()
+        
+        /// <summary>
+        /// FIXED: Check if a pawn has a path to ANY tile on their target side
+        /// According to Quoridor rules, players can reach any square on the opposite side
+        /// </summary>
+        private bool HasPathToTargetSide(WallChessGameManager.PawnData pawn)
+        {
+            Vector2Int currentPos = pawn.position;
+            int targetRow = GetTargetRow(pawn);
+            int gridSize = gameManager.gridSize;
+            
+            // For side-to-side movement (4-player games), check target column instead
+            if (IsHorizontalMovement(pawn))
+            {
+                int targetCol = GetTargetColumn(pawn);
+                // Test if there's a path to ANY tile on the target column
+                for (int row = 0; row < gridSize; row++)
+                {
+                    Vector2Int targetTile = new Vector2Int(targetCol, row);
+                    
+                    // Skip if target tile is occupied by another pawn
+                    if (gridSystem.IsTileOccupied(targetTile))
+                    {
+                        // Check if it's occupied by this same pawn (already at goal)
+                        if (targetTile == currentPos)
+                            return true;
+                        continue;
+                    }
+                    
+                    // Check if path exists to this target tile
+                    if (gridSystem.PathExists(currentPos, targetTile))
+                    {
+                        return true; // Found at least one reachable tile on target side
+                    }
+                }
+            }
+            else
+            {
+                // Test if there's a path to ANY tile on the target row
+                for (int col = 0; col < gridSize; col++)
+                {
+                    Vector2Int targetTile = new Vector2Int(col, targetRow);
+                    
+                    // Skip if target tile is occupied by another pawn
+                    if (gridSystem.IsTileOccupied(targetTile))
+                    {
+                        // Check if it's occupied by this same pawn (already at goal)
+                        if (targetTile == currentPos)
+                            return true;
+                        continue;
+                    }
+                    
+                    // Check if path exists to this target tile
+                    if (gridSystem.PathExists(currentPos, targetTile))
+                    {
+                        return true; // Found at least one reachable tile on target side
+                    }
+                }
+            }
+            
+            return false; // No reachable tiles on target side
+        }
+        
+        /// <summary>
+        /// FIXED: Get the target row for a given pawn based on their starting position
+        /// Player starting at bottom (y=0) needs to reach top (y=gridSize-1)
+        /// Player starting at top (y=gridSize-1) needs to reach bottom (y=0)
+        /// </summary>
+        private int GetTargetRow(WallChessGameManager.PawnData pawn)
+        {
+            // If pawn started at bottom row, target is top row
+            if (pawn.startPosition.y == 0)
+                return gameManager.gridSize - 1;
+            
+            // If pawn started at top row, target is bottom row
+            if (pawn.startPosition.y == gameManager.gridSize - 1)
+                return 0;
+            
+            // For 4-player games with side positions, use middle as default target
+            return pawn.startPosition.y == 0 ? gameManager.gridSize - 1 : 0;
+        }
+        
+        /// <summary>
+        /// Check if pawn movement is horizontal (left-to-right or right-to-left)
+        /// This applies to 4-player games where some pawns start on the sides
+        /// </summary>
+        private bool IsHorizontalMovement(WallChessGameManager.PawnData pawn)
+        {
+            // Pawns starting at left or right edges move horizontally
+            return pawn.startPosition.x == 0 || pawn.startPosition.x == gameManager.gridSize - 1;
+        }
+        
+        /// <summary>
+        /// Get the target column for horizontal-moving pawns (4-player games)
+        /// </summary>
+        private int GetTargetColumn(WallChessGameManager.PawnData pawn)
+        {
+            // If pawn started at left edge, target is right edge
+            if (pawn.startPosition.x == 0)
+                return gameManager.gridSize - 1;
+            
+            // If pawn started at right edge, target is left edge
+            if (pawn.startPosition.x == gameManager.gridSize - 1)
+                return 0;
+            
+            // Default fallback
+            return pawn.startPosition.x == 0 ? gameManager.gridSize - 1 : 0;
+        }
         
         private Vector2Int GetPlayerGoalPosition(bool isPlayer)
         {

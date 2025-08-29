@@ -233,40 +233,40 @@ namespace WallChess
             x = constrainedPos.x;
             y = constrainedPos.y;
             
-            // Calculate the exact intersection point between the two tiles the wall separates
+            // Calculate intersection point between tiles using proper grid coordinates
             if (orientation == GridSystem.Orientation.Horizontal)
             {
-                // Horizontal wall separates tiles vertically (between y and y+1 rows)
-                // Wall should be positioned at the intersection point, spanning 2 tiles horizontally (x to x+1)
-                Vector2Int tile1 = new Vector2Int(x, y);       // Bottom-left tile
-                Vector2Int tile2 = new Vector2Int(x + 1, y + 1); // Top-right tile
+                // Horizontal wall spans between tiles (x,y)-(x+1,y) and tiles (x,y+1)-(x+1,y+1)
+                // It should be centered at the intersection between these tile pairs
+                Vector2Int tile1 = new Vector2Int(x, y);
+                Vector2Int tile2 = new Vector2Int(x + 1, y + 1);
+                
                 Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
                 Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
                 
-                // Position wall at the horizontal center of the 2-tile span, at the intersection between rows
-                Vector3 wallPos = new Vector3(
-                    (pos1.x + pos2.x) / 2f,  // Center horizontally between x and x+1 tiles
-                    (pos1.y + pos2.y) / 2f,  // Center vertically between y and y+1 tiles (intersection)
+                // Center point between the two diagonal tiles
+                return new Vector3(
+                    (pos1.x + pos2.x) / 2f,
+                    (pos1.y + pos2.y) / 2f,
                     0f
                 );
-                return wallPos;
             }
             else
             {
-                // Vertical wall separates tiles horizontally (between x and x+1 columns)
-                // Wall should be positioned at the intersection point, spanning 2 tiles vertically (y to y+1)
-                Vector2Int tile1 = new Vector2Int(x, y);       // Bottom-left tile
-                Vector2Int tile2 = new Vector2Int(x + 1, y + 1); // Top-right tile
+                // Vertical wall spans between tiles (x,y)-(x,y+1) and tiles (x+1,y)-(x+1,y+1) 
+                // It should be centered at the intersection between these tile pairs
+                Vector2Int tile1 = new Vector2Int(x, y);
+                Vector2Int tile2 = new Vector2Int(x + 1, y + 1);
+                
                 Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
                 Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
                 
-                // Position wall at the vertical center of the 2-tile span, at the intersection between columns
-                Vector3 wallPos = new Vector3(
-                    (pos1.x + pos2.x) / 2f,  // Center horizontally between x and x+1 tiles (intersection)
-                    (pos1.y + pos2.y) / 2f,  // Center vertically between y and y+1 tiles
+                // Center point between the two diagonal tiles
+                return new Vector3(
+                    (pos1.x + pos2.x) / 2f,
+                    (pos1.y + pos2.y) / 2f,
                     0f
                 );
-                return wallPos;
             }
         }
         

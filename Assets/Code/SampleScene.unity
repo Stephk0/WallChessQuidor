@@ -1277,9 +1277,9 @@ Camera:
   m_LensShift: {x: 0, y: 0}
   m_NormalizedViewPortRect:
     serializedVersion: 2
-    x: 0.013200939
+    x: 0.33125
     y: 0
-    width: 0.9735981
+    width: 0.33749998
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
@@ -1396,7 +1396,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f0e3a4c70cda40143a8bc76c1cecedf6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gridSize: 5
+  gridSize: 7
   tileSize: 1
   tileGap: 0.2
   wallsPerPlayer: 5

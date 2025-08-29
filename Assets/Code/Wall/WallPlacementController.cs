@@ -321,8 +321,20 @@ namespace WallChess
         /// </summary>
         private float NearestHorizontalLaneY(float worldY, float spacing)
         {
-            float ky = Mathf.Round(worldY / spacing - horizontalGapOffsetY);
-            return (ky + horizontalGapOffsetY) * spacing;
+            // Find the nearest row gap by converting to grid space and back
+            // This ensures alignment is properly respected
+            Vector3 testPoint = new Vector3(0, worldY, 0);
+            Vector2Int nearestTile = gridSystem.WorldToGridPosition(testPoint);
+            
+            // For horizontal walls, we want the gap between row y and y+1
+            // Test both possible gap positions and choose the nearest
+            Vector3 gap1 = GetHorizontalGapWorldPos(0, nearestTile.y - 1);
+            Vector3 gap2 = GetHorizontalGapWorldPos(0, nearestTile.y);
+            
+            float dist1 = Mathf.Abs(gap1.y - worldY);
+            float dist2 = Mathf.Abs(gap2.y - worldY);
+            
+            return dist1 < dist2 ? gap1.y : gap2.y;
         }
 
         /// <summary>
@@ -330,8 +342,44 @@ namespace WallChess
         /// </summary>
         private float NearestVerticalLaneX(float worldX, float spacing)
         {
-            float kx = Mathf.Round(worldX / spacing - verticalGapOffsetX);
-            return (kx + verticalGapOffsetX) * spacing;
+            // Find the nearest column gap by converting to grid space and back
+            // This ensures alignment is properly respected
+            Vector3 testPoint = new Vector3(worldX, 0, 0);
+            Vector2Int nearestTile = gridSystem.WorldToGridPosition(testPoint);
+            
+            // For vertical walls, we want the gap between column x and x+1
+            // Test both possible gap positions and choose the nearest
+            Vector3 gap1 = GetVerticalGapWorldPos(nearestTile.x - 1, 0);
+            Vector3 gap2 = GetVerticalGapWorldPos(nearestTile.x, 0);
+            
+            float dist1 = Mathf.Abs(gap1.x - worldX);
+            float dist2 = Mathf.Abs(gap2.x - worldX);
+            
+            return dist1 < dist2 ? gap1.x : gap2.x;
+        }
+        
+        /// <summary>
+        /// Get world position of horizontal gap (between rows)
+        /// </summary>
+        private Vector3 GetHorizontalGapWorldPos(int x, int y)
+        {
+            Vector2Int tile1 = new Vector2Int(x, y);
+            Vector2Int tile2 = new Vector2Int(x, y + 1);
+            Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
+            Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
+            return new Vector3(pos1.x, (pos1.y + pos2.y) / 2f, 0f);
+        }
+        
+        /// <summary>
+        /// Get world position of vertical gap (between columns)
+        /// </summary>
+        private Vector3 GetVerticalGapWorldPos(int x, int y)
+        {
+            Vector2Int tile1 = new Vector2Int(x, y);
+            Vector2Int tile2 = new Vector2Int(x + 1, y);
+            Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
+            Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
+            return new Vector3((pos1.x + pos2.x) / 2f, pos1.y, 0f);
         }
 
         /// <summary>
@@ -339,19 +387,64 @@ namespace WallChess
         /// </summary>
         private void MapToGapIndices(Vector3 p, GridSystem.Orientation o, out int gx, out int gy, bool floor, float spacing)
         {
+            // Convert world position to nearest tile coordinates using grid system
+            Vector2Int nearestTile = gridSystem.WorldToGridPosition(p);
+            
             if (o == GridSystem.Orientation.Horizontal)
             {
-                float fx = p.x / spacing - horizontalGapOffsetX;
-                float fy = p.y / spacing - horizontalGapOffsetY;
-                gx = floor ? Mathf.FloorToInt(fx) : Mathf.RoundToInt(fx);
-                gy = floor ? Mathf.FloorToInt(fy) : Mathf.RoundToInt(fy);
+                // For horizontal walls, find the nearest gap between rows
+                // The wall coordinate represents the lower row of the gap
+                if (floor)
+                {
+                    // Use the tile row or the row below
+                    Vector3 gap1 = GetHorizontalGapWorldPos(nearestTile.x, nearestTile.y - 1);
+                    Vector3 gap2 = GetHorizontalGapWorldPos(nearestTile.x, nearestTile.y);
+                    
+                    if (Mathf.Abs(gap1.y - p.y) < Mathf.Abs(gap2.y - p.y))
+                    {
+                        gx = nearestTile.x;
+                        gy = nearestTile.y - 1;
+                    }
+                    else
+                    {
+                        gx = nearestTile.x;
+                        gy = nearestTile.y;
+                    }
+                }
+                else
+                {
+                    // Round to nearest gap
+                    gx = nearestTile.x;
+                    gy = nearestTile.y;
+                }
             }
             else
             {
-                float fx = p.x / spacing - verticalGapOffsetX;
-                float fy = p.y / spacing - verticalGapOffsetY;
-                gx = floor ? Mathf.FloorToInt(fx) : Mathf.RoundToInt(fx);
-                gy = floor ? Mathf.FloorToInt(fy) : Mathf.RoundToInt(fy); // FIXED: was Mathf.RoundToInt(gy)
+                // For vertical walls, find the nearest gap between columns
+                // The wall coordinate represents the left column of the gap
+                if (floor)
+                {
+                    // Use the tile column or the column to the left
+                    Vector3 gap1 = GetVerticalGapWorldPos(nearestTile.x - 1, nearestTile.y);
+                    Vector3 gap2 = GetVerticalGapWorldPos(nearestTile.x, nearestTile.y);
+                    
+                    if (Mathf.Abs(gap1.x - p.x) < Mathf.Abs(gap2.x - p.x))
+                    {
+                        gx = nearestTile.x - 1;
+                        gy = nearestTile.y;
+                    }
+                    else
+                    {
+                        gx = nearestTile.x;
+                        gy = nearestTile.y;
+                    }
+                }
+                else
+                {
+                    // Round to nearest gap
+                    gx = nearestTile.x;
+                    gy = nearestTile.y;
+                }
             }
         }
 
@@ -408,18 +501,12 @@ namespace WallChess
         }
 
         /// <summary>
-        /// Calculate the world position center of a wall gap
+        /// Calculate the world position center of a wall gap using grid alignment
         /// </summary>
         private Vector3 GapCenter(GridSystem.Orientation o, int x, int y, float spacing)
         {
-            if (o == GridSystem.Orientation.Horizontal)
-                return new Vector3((x + horizontalGapOffsetX) * spacing,
-                                   (y + horizontalGapOffsetY) * spacing,
-                                   0f);
-            else
-                return new Vector3((x + verticalGapOffsetX) * spacing,
-                                   (y + verticalGapOffsetY) * spacing,
-                                   0f);
+            // Use the WallManager's method which properly handles alignment
+            return wallManager.GetWallWorldPosition(o, x, y);
         }
 
         /// <summary>
