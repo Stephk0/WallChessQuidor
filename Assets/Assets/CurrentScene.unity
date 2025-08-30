@@ -646,7 +646,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f0e3a4c70cda40143a8bc76c1cecedf6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gridSize: 7
+  gridSize: 5
   tileSize: 1
   tileGap: 0.2
   wallsPerPlayer: 16
@@ -660,7 +660,7 @@ MonoBehaviour:
   - {fileID: 4779446578767639209, guid: f575019552a96af43bd9d7d6ecce35da, type: 3}
   wallPrefab: {fileID: 0}
   highlightPrefab: {fileID: 150230146685571070, guid: 2166a8fc1915b104db380a9ea7a45d15, type: 3}
-  highlightConfirmPrefab: {fileID: 0}
+  highlightConfirmPrefab: {fileID: 150230146685571070, guid: 8b97d06688563194e8fafc6545c80ef4, type: 3}
   wallPreviewPrefab: {fileID: 0}
   currentState: 0
   currentAction: 0
