@@ -25,6 +25,8 @@ namespace WallChess.Grid
         /// <summary>
         /// Find path between two tile positions using A* on unified grid
         /// Pawns move 2 cells at a time (crossing gaps)
+        /// FIXED: Proper boundary checking and wall detection
+        /// UPDATED: Ignores pawn occupancy, only considers walls as blocking
         /// </summary>
         public static bool PathExists(GridSystem gridSystem, Vector2Int fromTile, Vector2Int toTile)
         {
@@ -35,9 +37,18 @@ namespace WallChess.Grid
         /// <summary>
         /// Find the shortest path between two tile positions
         /// Returns null if no path exists
+        /// FIXED: Proper boundary and wall checking
+        /// UPDATED: Ignores pawn occupancy, only considers walls as blocking
         /// </summary>
         public static List<Vector2Int> FindPath(GridSystem gridSystem, Vector2Int fromTile, Vector2Int toTile)
         {
+            // FIXED: Validate tile positions first
+            if (!IsValidTilePosition(gridSystem, fromTile) || !IsValidTilePosition(gridSystem, toTile))
+            {
+                Debug.LogWarning($"GridPathfinder: Invalid tile positions - from:{fromTile}, to:{toTile}");
+                return null;
+            }
+            
             // Convert to unified positions
             Vector2Int startUnified = gridSystem.TileToUnifiedPosition(fromTile);
             Vector2Int endUnified = gridSystem.TileToUnifiedPosition(toTile);
@@ -89,21 +100,29 @@ namespace WallChess.Grid
                     if (closedSet.Contains(neighborPos))
                         continue;
                     
-                    // Check if neighbor is valid tile position
+                    // FIXED: Check if neighbor is valid tile position within bounds
+                    Vector2Int neighborTilePos = gridSystem.UnifiedToTilePosition(neighborPos);
+                    if (!IsValidTilePosition(gridSystem, neighborTilePos))
+                        continue;
+                    
+                    // Check if neighbor unified position is valid
                     if (!gridSystem.IsValidUnifiedPosition(neighborPos))
                         continue;
                     
                     GridSystem.GridCell neighborCell = gridSystem.GetCell(neighborPos);
-                    if (!neighborCell.IsTile)
+                    if (neighborCell == null || !neighborCell.IsTile)
                         continue;
                     
-                    // Check if tile is occupied (except for the destination)
-                    if (neighborCell.isOccupied && neighborPos != endUnified)
-                        continue;
+                    // UPDATED: Ignore pawn occupancy on tiles for pathfinding
+                    // Pawns can be jumped over, so we don't consider tile occupancy as blocking
+                    // Only walls in gaps will block movement
                     
-                    // Check if gap is blocked by wall
+                    // FIXED: Check if gap is blocked by wall
+                    if (!gridSystem.IsValidUnifiedPosition(gapPos))
+                        continue;
+                        
                     GridSystem.GridCell gapCell = gridSystem.GetCell(gapPos);
-                    if (gapCell.isOccupied)
+                    if (gapCell == null || gapCell.isOccupied)
                         continue;
                     
                     // Calculate costs
@@ -130,6 +149,16 @@ namespace WallChess.Grid
             
             // No path found
             return null;
+        }
+        
+        /// <summary>
+        /// FIXED: Proper tile position validation within grid bounds
+        /// </summary>
+        private static bool IsValidTilePosition(GridSystem gridSystem, Vector2Int tilePos)
+        {
+            int gridSize = gridSystem.GetGridSize();
+            return tilePos.x >= 0 && tilePos.x < gridSize && 
+                   tilePos.y >= 0 && tilePos.y < gridSize;
         }
         
         private static float GetDistance(Vector2Int a, Vector2Int b)
@@ -163,6 +192,93 @@ namespace WallChess.Grid
         {
             var path = FindPath(gridSystem, fromTile, toTile);
             return path != null ? path.Count : -1;
+        }
+        
+        /// <summary>
+        /// NEW: Check if any pawn can reach any tile on their target side
+        /// This replaces the pre-calculation approach
+        /// UPDATED: Now ignores pawn occupancy in pathfinding calculations
+        /// </summary>
+        public static bool AllPawnsHaveValidPaths(GridSystem gridSystem, WallChessGameManager gameManager)
+        {
+            if (gameManager?.pawns == null || gameManager.pawns.Count == 0) return true;
+            
+            foreach (var pawn in gameManager.pawns)
+            {
+                if (!HasPathToTargetSide(gridSystem, pawn, gameManager.gridSize))
+                {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+        
+        /// <summary>
+        /// NEW: Check if a specific pawn has a path to their target side
+        /// UPDATED: Now ignores pawn occupancy in pathfinding calculations
+        /// </summary>
+        private static bool HasPathToTargetSide(GridSystem gridSystem, WallChessGameManager.PawnData pawn, int gridSize)
+        {
+            Vector2Int currentPos = pawn.position;
+            List<Vector2Int> goalTiles = GetGoalTiles(pawn, gridSize);
+            
+            // Test if there's a path to ANY goal tile
+            foreach (Vector2Int goalTile in goalTiles)
+            {
+                // Check if path exists to this goal tile
+                // Since we now ignore pawn occupancy, we don't need to check if goal tile is occupied
+                if (PathExists(gridSystem, currentPos, goalTile))
+                {
+                    return true; // Found at least one reachable tile on goal side
+                }
+            }
+            
+            return false; // No reachable tiles on goal side
+        }
+        
+        /// <summary>
+        /// NEW: Get all possible goal tiles for a pawn based on their starting position
+        /// </summary>
+        private static List<Vector2Int> GetGoalTiles(WallChessGameManager.PawnData pawn, int gridSize)
+        {
+            List<Vector2Int> goalTiles = new List<Vector2Int>();
+            Vector2Int startPos = pawn.startPosition;
+            
+            if (startPos.y == 0) // Started at bottom row (y=0)
+            {
+                // Goal is any tile on top row (y=gridSize-1)
+                for (int x = 0; x < gridSize; x++)
+                {
+                    goalTiles.Add(new Vector2Int(x, gridSize - 1));
+                }
+            }
+            else if (startPos.y == gridSize - 1) // Started at top row (y=gridSize-1)
+            {
+                // Goal is any tile on bottom row (y=0)
+                for (int x = 0; x < gridSize; x++)
+                {
+                    goalTiles.Add(new Vector2Int(x, 0));
+                }
+            }
+            else if (startPos.x == 0) // Started at left column (x=0)
+            {
+                // Goal is any tile on right column (x=gridSize-1)
+                for (int y = 0; y < gridSize; y++)
+                {
+                    goalTiles.Add(new Vector2Int(gridSize - 1, y));
+                }
+            }
+            else if (startPos.x == gridSize - 1) // Started at right column (x=gridSize-1)
+            {
+                // Goal is any tile on left column (x=0)
+                for (int y = 0; y < gridSize; y++)
+                {
+                    goalTiles.Add(new Vector2Int(0, y));
+                }
+            }
+            
+            return goalTiles;
         }
     }
 }

@@ -6,8 +6,20 @@ namespace WallChess
 {
     /// <summary>
     /// Unified WallManager that uses GridSystem as single source of truth for occupancy.
-    /// No more dual tracking systems - everything goes through GridSystem.
-    /// Enhanced with prefab rotation system and debug mode support.
+    /// REFACTORED: Now uses on-demand pathfinding validation when walls are placed.
+    /// No more pre-calculation - validates paths immediately using temporary wall placement.
+    /// 
+    /// Pathfinding Visualization Controls:
+    /// - P: Toggle pathfinding visualization on/off
+    /// - O: Cycle through debug modes (Off, Pawn1Only, Pawn2Only, BothPawns)
+    /// - R: Refresh visualization
+    /// 
+    /// Visualization Colors:
+    /// - Green: Valid path tiles
+    /// - Red: Inaccessible tiles
+    /// - Magenta: Last known accessible tiles
+    /// - Blue: Pawn2 specific paths (in BothPawns mode)
+    /// - Cyan blend: Tiles accessible by both pawns
     /// </summary>
     public class WallManager : MonoBehaviour
     {
@@ -42,6 +54,14 @@ namespace WallChess
         [SerializeField] private float gapSnapMargin = 0.25f;
         [SerializeField] private float laneSnapMargin = 0.5f;  // Increased for new intersection approach
         [SerializeField] private float unlockMultiplier = 1.8f; // Balanced for smooth orientation switching
+        
+        [Header("Pathfinding Debug Visualization")]
+        [SerializeField] private bool enablePathfindingVisualization = false;
+        [Tooltip("Enable pathfinding visualization during wall placement")]
+        [SerializeField] private GridPathfindingVisualizer.DebugMode pathfindingDebugMode = GridPathfindingVisualizer.DebugMode.BothPawns;
+        [Tooltip("Which pawns to show pathfinding visualization for")]
+        [SerializeField] private bool updateVisualizationOnWallPlacement = true;
+        [Tooltip("Automatically update pathfinding visualization when walls are placed")]
 
         private WallChessGameManager gameManager;
         private GridSystem gridSystem;
@@ -49,6 +69,7 @@ namespace WallChess
         private WallValidator validator;
         private WallVisuals visuals;
         private WallPlacementController placement;
+        private GridPathfindingVisualizer pathfindingVisualizer;
         private List<GameObject> managedWalls = new List<GameObject>();
 
         public void Initialize(WallChessGameManager gm)
@@ -74,12 +95,16 @@ namespace WallChess
             ValidatePrefabSetup();
 
             // Initialize unified systems that use GridSystem as source of truth
+            // UPDATED: New WallValidator with on-demand pathfinding validation
             validator = new WallValidator(gridSystem, gameManager);
             visuals = new WallVisuals(GetActivePrefab(), GetActiveMaterial(), validPreviewColor, invalidPreviewColor, placingPreviewColor);
             visuals.SetWallManager(this); // Set reference for advanced preview features
             placement = new WallPlacementController(this, gameManager, gridSystem, validator, visuals, placementPlaneZ);
+            
+            // Initialize pathfinding visualizer
+            InitializePathfindingVisualizer();
 
-            Debug.Log($"WallManager initialized with unified GridSystem integration. Debug mode: {boxForPrefabDebugMode}");
+            Debug.Log($"WallManager initialized with on-demand pathfinding validation. Debug mode: {boxForPrefabDebugMode}, Pathfinding visualization: {enablePathfindingVisualization}");
         }
 
         /// <summary>
@@ -142,6 +167,24 @@ namespace WallChess
                     }
                 }
             }
+        }
+        
+        /// <summary>
+        /// Initialize the pathfinding visualizer if enabled
+        /// </summary>
+        private void InitializePathfindingVisualizer()
+        {
+            if (!enablePathfindingVisualization) return;
+            
+            // Create visualizer GameObject as child of WallManager
+            GameObject visualizerGO = new GameObject("PathfindingVisualizer");
+            visualizerGO.transform.parent = transform;
+            
+            pathfindingVisualizer = visualizerGO.AddComponent<GridPathfindingVisualizer>();
+            pathfindingVisualizer.Initialize(gridSystem, gameManager);
+            pathfindingVisualizer.SetDebugMode(pathfindingDebugMode);
+            
+            Debug.Log($"PathfindingVisualizer initialized with mode: {pathfindingDebugMode}");
         }
 
         /// <summary>
@@ -248,6 +291,13 @@ namespace WallChess
             if (Input.GetKeyDown(KeyCode.Y)) placement.RunAutomaticWallTest();
             if (Input.GetKeyDown(KeyCode.T)) placement.TestWallBlocking();
             if (Input.GetKeyDown(KeyCode.G)) TestGapDetection(); // New gap detection test
+            if (Input.GetKeyDown(KeyCode.V)) validator.DebugValidateGameState(); // NEW: Validate current game state
+            if (Input.GetKeyDown(KeyCode.B)) validator.DebugPrintAllPawnPaths(); // NEW: Print all pawn paths
+            
+            // Pathfinding visualization controls
+            if (Input.GetKeyDown(KeyCode.P)) TogglePathfindingVisualization();
+            if (Input.GetKeyDown(KeyCode.O)) CyclePathfindingDebugMode();
+            if (Input.GetKeyDown(KeyCode.R)) RefreshPathfindingVisualization();
 
             placement.Tick();
         }
@@ -316,12 +366,28 @@ namespace WallChess
             
             // Clear grid occupancy
             gridSystem?.ClearGrid();
+            
+            // Refresh pathfinding visualization after clearing
+            if (pathfindingVisualizer != null && enablePathfindingVisualization)
+            {
+                pathfindingVisualizer.RefreshVisualization();
+            }
         }
 
         void OnDestroy()
         {
             visuals.CleanupPreview();
             ClearAllWalls();
+            
+            // Clean up pathfinding visualizer
+            if (pathfindingVisualizer != null)
+            {
+                if (pathfindingVisualizer.gameObject != null)
+                {
+                    DestroyImmediate(pathfindingVisualizer.gameObject);
+                }
+                pathfindingVisualizer = null;
+            }
         }
 
         // Public API for wall management
@@ -357,6 +423,19 @@ namespace WallChess
             if (placed)
             {
                 Debug.Log($"WallManager.PlaceWall: Wall placed successfully at {orientation} ({x},{y}) - OnWallPlaced event will handle game state");
+                
+                // Validate all pawn paths after placement
+                if (!validator.ValidateAllPawnPaths())
+                {
+                    Debug.LogError($"CRITICAL: Wall placement at {orientation} ({x},{y}) resulted in invalid game state!");
+                    validator.DebugPrintAllPawnPaths();
+                }
+                
+                // Update pathfinding visualization if enabled
+                if (updateVisualizationOnWallPlacement && pathfindingVisualizer != null)
+                {
+                    pathfindingVisualizer.RefreshVisualization();
+                }
             }
             else
             {
@@ -445,12 +524,96 @@ namespace WallChess
             }
         }
         
+        #region Pathfinding Visualization Controls
+        
+        /// <summary>
+        /// Toggle pathfinding visualization on/off
+        /// </summary>
+        public void TogglePathfindingVisualization()
+        {
+            enablePathfindingVisualization = !enablePathfindingVisualization;
+            
+            if (enablePathfindingVisualization)
+            {
+                if (pathfindingVisualizer == null)
+                {
+                    InitializePathfindingVisualizer();
+                }
+                else
+                {
+                    pathfindingVisualizer.SetDebugMode(pathfindingDebugMode);
+                }
+                Debug.Log("Pathfinding visualization enabled");
+            }
+            else
+            {
+                if (pathfindingVisualizer != null)
+                {
+                    pathfindingVisualizer.SetDebugMode(GridPathfindingVisualizer.DebugMode.Off);
+                }
+                Debug.Log("Pathfinding visualization disabled");
+            }
+        }
+        
+        /// <summary>
+        /// Cycle through pathfinding debug modes
+        /// </summary>
+        public void CyclePathfindingDebugMode()
+        {
+            if (pathfindingVisualizer != null)
+            {
+                pathfindingVisualizer.ToggleDebugMode();
+                pathfindingDebugMode = pathfindingVisualizer.CurrentDebugMode;
+                Debug.Log($"Pathfinding debug mode: {pathfindingDebugMode}");
+            }
+            else if (enablePathfindingVisualization)
+            {
+                InitializePathfindingVisualizer();
+                CyclePathfindingDebugMode();
+            }
+            else
+            {
+                Debug.Log("Enable pathfinding visualization first (Press P)");
+            }
+        }
+        
+        /// <summary>
+        /// Refresh pathfinding visualization
+        /// </summary>
+        public void RefreshPathfindingVisualization()
+        {
+            if (pathfindingVisualizer != null && enablePathfindingVisualization)
+            {
+                pathfindingVisualizer.RefreshVisualization();
+                Debug.Log("Pathfinding visualization refreshed");
+            }
+            else
+            {
+                Debug.Log("Pathfinding visualization not active");
+            }
+        }
+        
+        /// <summary>
+        /// Set specific pathfinding debug mode
+        /// </summary>
+        public void SetPathfindingDebugMode(GridPathfindingVisualizer.DebugMode mode)
+        {
+            pathfindingDebugMode = mode;
+            if (pathfindingVisualizer != null)
+            {
+                pathfindingVisualizer.SetDebugMode(mode);
+            }
+        }
+        
+        #endregion
+        
         // Public accessors for AI integration
         public WallValidator GetWallValidator() => validator;
         public WallVisuals GetWallVisuals() => visuals;
         public WallPlacementController GetPlacementController() => placement;
         public GridSystem GetGridSystem() => gridSystem;
         public List<GameObject> GetManagedWalls() => managedWalls;
+        public GridPathfindingVisualizer GetPathfindingVisualizer() => pathfindingVisualizer;
         
         // Public accessors for gap detection settings (for WallPlacementController)
         public float GetGapSnapMargin() => gapSnapMargin;

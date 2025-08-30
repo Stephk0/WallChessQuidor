@@ -126,7 +126,7 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: output-onlinepngtools (1)_0
+      name: Vamp
       rect:
         serializedVersion: 2
         x: 65
@@ -134,7 +134,7 @@ TextureImporter:
         width: 333
         height: 438
       alignment: 0
-      pivot: {x: 0, y: 0}
+      pivot: {x: 0.5, y: 0.5}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
       outline: []
@@ -151,7 +151,7 @@ TextureImporter:
     customData: 
     physicsShape: []
     bones: []
-    spriteID: 
+    spriteID: db4fafa6889cfb144836287565e2a67c
     internalID: 0
     vertices: []
     indices: 
@@ -161,7 +161,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      output-onlinepngtools (1)_0: -5933261652459859058
+      Vamp: -5933261652459859058
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

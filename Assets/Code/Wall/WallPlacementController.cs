@@ -287,12 +287,12 @@ namespace WallChess
                     if (dY <= laneSnapMargin * unlockMultiplier)
                     {
                         inHStripe = true; inVStripe = false; // Stay locked to horizontal
-                        Debug.Log($"Maintaining HORIZONTAL lock (dY={dY:F3} <= {laneSnapMargin * unlockMultiplier:F3})");
+                       
                     }
                     else
                     {
                         orientationLock = null; // left the stripe -> unlock
-                        Debug.Log($"UNLOCKING from horizontal (dY={dY:F3} > {laneSnapMargin * unlockMultiplier:F3})");
+                        
                     }
                 }
                 else // Vertical lock
@@ -300,12 +300,12 @@ namespace WallChess
                     if (dX <= laneSnapMargin * unlockMultiplier)
                     {
                         inVStripe = true; inHStripe = false; // Stay locked to vertical
-                        Debug.Log($"Maintaining VERTICAL lock (dX={dX:F3} <= {laneSnapMargin * unlockMultiplier:F3})");
+                        
                     }
                     else
                     {
                         orientationLock = null; // left the stripe -> unlock
-                        Debug.Log($"UNLOCKING from vertical (dX={dX:F3} > {laneSnapMargin * unlockMultiplier:F3})");
+                      
                     }
                 }
             }
@@ -351,12 +351,12 @@ namespace WallChess
                 if (result.orientation == GridSystem.Orientation.Horizontal && dY <= laneSnapMargin)
                 {
                     orientationLock = GridSystem.Orientation.Horizontal;
-                    Debug.Log($"LOCKING to HORIZONTAL orientation (dY={dY:F3} <= {laneSnapMargin:F3})");
+                    
                 }
                 else if (result.orientation == GridSystem.Orientation.Vertical && dX <= laneSnapMargin)
                 {
                     orientationLock = GridSystem.Orientation.Vertical;
-                    Debug.Log($"LOCKING to VERTICAL orientation (dX={dX:F3} <= {laneSnapMargin:F3})");
+                   
                 }
                 // If we selected while outside both narrow stripes (far away), don't lock
             }

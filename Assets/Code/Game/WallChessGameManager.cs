@@ -106,6 +106,7 @@ namespace WallChess
         public GameObject[] playerPrefabs; // Array for different player colors
         public GameObject wallPrefab;
         public GameObject highlightPrefab;
+        public GameObject highlightConfirmPrefab; // NEW: Confirm highlight for drag operations
         public GameObject wallPreviewPrefab;
 
         [Header("Current State")]
@@ -121,6 +122,7 @@ namespace WallChess
         private PlayerControllerV2 playerController;
         private WallManager wallManager;
         private HighlightManager highlightManager;
+        private WallValidator wallValidator;
         
         // CLEAN EVENT SYSTEM - UI accessible events
         public static System.Action<WallPlacementResult> OnWallPlacedComplete;
@@ -155,6 +157,33 @@ namespace WallChess
             {
                 var pawn = pawns[i];
                 Debug.Log($"Pawn {i}: Position={pawn.position}, Walls={pawn.wallsRemaining}, Active={pawn.isActive}");
+            }
+        }
+        
+        [ContextMenu("Debug/Validate Game State")]
+        private void Ctx_ValidateGameState()
+        {
+            if (wallValidator != null)
+            {
+                wallValidator.DebugValidateGameState();
+            }
+            else
+            {
+                Debug.LogWarning("WallValidator not initialized");
+            }
+        }
+        
+        [ContextMenu("Debug/Print All Pawn Paths")]
+        private void Ctx_PrintAllPawnPaths()
+        {
+            if (wallValidator != null)
+            {
+                wallValidator.DebugPrintAllPawnPaths();
+                Debug.Log("Printed pathfinding debug info for all pawns");
+            }
+            else
+            {
+                Debug.LogWarning("WallValidator not initialized");
             }
         }
 
@@ -192,10 +221,13 @@ namespace WallChess
             {
                 highlightManager = gameObject.AddComponent<HighlightManager>();
             }
+            
+            // Initialize WallValidator with pathfinding manager
+            wallValidator = new WallValidator(gridSystem, this);
 
             playerController.Initialize(this);
             wallManager.Initialize(this);
-            highlightManager.Initialize(highlightPrefab);
+            highlightManager.Initialize(highlightPrefab, highlightConfirmPrefab); // Pass both prefabs
 
             // Set up initial tile occupancy
             foreach (var pawn in pawns)
@@ -362,8 +394,40 @@ namespace WallChess
             
             Debug.Log($"SetActivePlayer: Changed from {previousActivePlayer} to {activePlayerIndex}. Pawn.isActive = {pawns[activePlayerIndex].isActive}");
             
+            // Show valid move highlights for the active pawn
+            ShowValidMovesForActivePawn();
+            
+            // With on-demand pathfinding, no pre-calculation needed
+            // Path validation happens when walls are placed
+            Debug.Log($"Player {activePlayerIndex} turn started - on-demand pathfinding ready");
+            
             // Trigger UI event for turn change
             OnPlayerTurnChanged?.Invoke(activePlayerIndex);
+        }
+
+        /// <summary>
+        /// Always show valid move highlights when it's the active pawn's turn
+        /// </summary>
+        private void ShowValidMovesForActivePawn()
+        {
+            var activePawn = GetActivePawn();
+            if (activePawn != null && highlightManager != null && gridSystem != null)
+            {
+                List<Vector2Int> validMoves = gridSystem.GetValidMoves(activePawn.position);
+                highlightManager.ShowValidMoveHighlights(validMoves, gridSystem);
+                Debug.Log($"Always showing {validMoves.Count} valid move highlights for active pawn {activePlayerIndex}");
+            }
+        }
+
+        /// <summary>
+        /// Hide valid move highlights (called when turn ends or game state changes)
+        /// </summary>
+        private void HideValidMovesForActivePawn()
+        {
+            if (highlightManager != null)
+            {
+                highlightManager.ClearValidMoveHighlights();
+            }
         }
 
         public PawnData GetActivePawn()
@@ -534,6 +598,9 @@ namespace WallChess
                     Debug.Log($"VICTORY: Player {i} Wins!");
                     ChangeState(GameState.GameOver);
                     
+                    // Hide highlights when game ends
+                    HideValidMovesForActivePawn();
+                    
                     // Trigger UI victory event
                     OnPlayerVictory?.Invoke(i);
                     
@@ -557,6 +624,9 @@ namespace WallChess
 
             // ENHANCED DEBUG: Track activePlayerIndex changes
             int previousPlayer = activePlayerIndex;
+            
+            // Hide highlights for the current player before switching
+            HideValidMovesForActivePawn();
             
             // Switch to next player
             int nextPlayer = (activePlayerIndex + 1) % pawns.Count;
@@ -708,6 +778,7 @@ namespace WallChess
         public PlayerControllerV2 GetPlayerController() => playerController;
         public WallManager GetWallManager() => wallManager;
         public HighlightManager GetHighlightManager() => highlightManager;
+        public WallValidator GetWallValidator() => wallValidator;
         
         // New pawn system API
         public int GetActivePawnIndex() => activePlayerIndex;
@@ -798,6 +869,9 @@ namespace WallChess
                 gridSystem.OnWallPlaced -= OnWallPlaced;
                 gridSystem.OnGridCleared -= OnGridCleared;
             }
+            
+            // WallValidator cleanup no longer needed with new on-demand system
+            // The new WallValidator doesn't maintain state that needs cleanup
         }
     }
 }

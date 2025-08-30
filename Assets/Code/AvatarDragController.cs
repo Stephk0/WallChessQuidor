@@ -40,10 +40,6 @@ namespace WallChess
             isDragging = true;
             originalPosition = transform.position;
             originalGridPosition = controller.GetAvatarPosition(isPlayerAvatar);
-            ShowValidMoveHighlights();
-            
-            string avatarType = isPlayerAvatar ? "player" : "opponent";
-            Debug.Log($"Started dragging {avatarType} avatar");
         }
 
         void OnMouseDrag()
@@ -52,6 +48,26 @@ namespace WallChess
             {
                 Vector3 mouseWorldPos = GetMouseWorldPosition();
                 transform.position = mouseWorldPos;
+                
+                // Show confirm highlight when dragging over a valid move
+                Vector2Int targetGridPos = controller.WorldToGridPosition(mouseWorldPos);
+                if (controller.IsValidMove(originalGridPosition, targetGridPos))
+                {
+                    HighlightManager highlightManager = controller.GetHighlightManager();
+                    if (highlightManager != null)
+                    {
+                        highlightManager.ShowConfirmHighlight(targetGridPos, controller.GetGridSystem());
+                    }
+                }
+                else
+                {
+                    // Clear confirm highlight when not over a valid move
+                    HighlightManager highlightManager = controller.GetHighlightManager();
+                    if (highlightManager != null)
+                    {
+                        highlightManager.ClearConfirmHighlights();
+                    }
+                }
             }
         }
 
@@ -59,7 +75,8 @@ namespace WallChess
         {
             if (isDragging)
             {
-                ClearHighlights();
+                // Clear only confirm highlights (valid move highlights stay visible)
+                ClearConfirmHighlights();
                 
                 Vector3 mouseWorldPos = GetMouseWorldPosition();
                 Vector2Int targetGridPos = controller.WorldToGridPosition(mouseWorldPos);
@@ -88,31 +105,13 @@ namespace WallChess
             }
         }
 
-        void ShowValidMoveHighlights()
+        void ClearConfirmHighlights()
         {
-            Vector2Int currentPos = controller.GetAvatarPosition(isPlayerAvatar);
-            List<Vector2Int> validMoves = controller.GetValidMoves(currentPos);
-            
-            // Use the pooled highlight system from the controller
+            // Clear only the confirm highlights, leaving valid move highlights visible
             HighlightManager highlightManager = controller.GetHighlightManager();
             if (highlightManager != null)
             {
-                highlightManager.ShowHighlights(validMoves, controller.GetGridSystem());
-                Debug.Log($"Showing {validMoves.Count} valid move highlights for {(isPlayerAvatar ? "player" : "opponent")}");
-            }
-            else
-            {
-                Debug.LogWarning("HighlightManager not found! Cannot show move highlights.");
-            }
-        }
-
-        void ClearHighlights()
-        {
-            // Use the pooled highlight system from the controller
-            HighlightManager highlightManager = controller.GetHighlightManager();
-            if (highlightManager != null)
-            {
-                highlightManager.ClearHighlights();
+                highlightManager.ClearConfirmHighlights();
             }
         }
 

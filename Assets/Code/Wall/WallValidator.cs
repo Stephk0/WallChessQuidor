@@ -1,10 +1,14 @@
 using UnityEngine;
 using System.Collections.Generic;
+using WallChess.Grid;
+// Force recompile trigger
 
 namespace WallChess
 {
     /// <summary>
     /// Validates wall placements and path constraints using GridSystem.
+    /// REFACTORED: Now uses on-demand pathfinding validation when walls are placed.
+    /// No more pre-calculation - checks paths immediately when needed.
     /// </summary>
     public class WallValidator
     {
@@ -15,22 +19,24 @@ namespace WallChess
         {
             gridSystem = grid;
             gameManager = gm;
+            Debug.Log("WallValidator initialized with on-demand pathfinding validation");
         }
 
+        /// <summary>
+        /// Check if a wall can be placed at the given position
+        /// Uses on-demand pathfinding validation
+        /// </summary>
         public bool CanPlace(GridSystem.Orientation orientation, int x, int y)
         {
             if (gameManager == null) return false;
             if (!gameManager.CanPlaceWalls()) return false;
             if (!gameManager.CurrentPlayerHasWalls()) return false;
 
-            // Check basic placement validity
+            // Check basic placement validity (already occupied by other walls)
             if (!gridSystem.CanPlaceWall(orientation, x, y)) return false;
-
-            // Check if wall would cross existing walls
-            if (WouldCross(orientation, x, y)) return false;
             
-            // Check if wall would block all paths for any player
-            if (WouldBlockPaths(orientation, x, y)) return false;
+            // NEW: Check if wall would block all paths for any player using temporary placement
+            if (WouldBlockAllPaths(orientation, x, y)) return false;
 
             return true;
         }
@@ -44,116 +50,96 @@ namespace WallChess
             );
         }
 
-        bool WouldCross(GridSystem.Orientation orientation, int x, int y)
+        /// <summary>
+        /// NEW: Test if placing a wall would block all paths for any player
+        /// Uses temporary wall placement and immediate pathfinding validation
+        /// </summary>
+        private bool WouldBlockAllPaths(GridSystem.Orientation orientation, int x, int y)
         {
-            // With intersection tracking in GridSystem.CanPlaceWall(), crossing is automatically detected
-            // This method is now primarily for legacy compatibility
-            return false; // CanPlaceWall() handles intersection checking
-        }
-        
-        // Legacy method for compatibility
-        bool WouldCross(GapDetector.WallInfo w)
-        {
-            return WouldCross(
-                w.orientation == WallState.Orientation.Horizontal ? GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical,
-                w.x, w.y
-            );
-        }
-
-        bool WouldBlockPaths(GridSystem.Orientation orientation, int x, int y)
-        {
-            // Double check: Don't even test if wall can't be placed
-            if (!gridSystem.CanPlaceWall(orientation, x, y))
-                return true; // Already blocked/occupied
-            
-            // Temporarily place the wall in GridSystem WITHOUT triggering events
+            // Temporarily place the wall without triggering events
             Vector3 dummyPos = Vector3.zero;
             Vector3 dummyScale = Vector3.one;
             var wallInfo = new GridSystem.WallInfo(orientation, x, y, dummyPos, dummyScale);
             
-            // FIXED: Place wall temporarily without triggering OnWallPlaced event
-            bool placed = gridSystem.PlaceWall(wallInfo, false); // false = don't trigger events
+            // Place wall temporarily without triggering OnWallPlaced event
+            bool placed = gridSystem.PlaceWall(wallInfo, false);
             if (!placed) 
             {
-                Debug.LogWarning($"WouldBlockPaths: Failed to place temporary wall at {orientation} ({x},{y}) - this should not happen after CanPlaceWall check");
-                return true; // Can't place means blocked
+                return true; // Can't place means it would interfere with existing walls
             }
 
-            // FIXED: Test if ALL players still have paths to ANY tile on their target side
-            bool anyPlayerBlocked = false;
-            
-            foreach (var pawn in gameManager.pawns)
-            {
-                if (!HasPathToTargetSide(pawn))
-                {
-                    anyPlayerBlocked = true;
-                    Debug.Log($"Wall at {orientation} ({x},{y}) would block pawn at {pawn.position} from reaching goal");
-                    break;
-                }
-            }
+            // Test if ALL players still have paths to their target sides
+            bool anyPlayerBlocked = !GridPathfinder.AllPawnsHaveValidPaths(gridSystem, gameManager);
 
-            // FIXED: Remove temporary wall using the new GridSystem method
+            // Remove temporary wall immediately
             gridSystem.RemoveWallOccupancy(orientation, x, y);
+
+            if (anyPlayerBlocked)
+            {
+                Debug.Log($"Wall at {orientation} ({x},{y}) would block player paths - placement denied");
+            }
 
             return anyPlayerBlocked;
         }
         
         // Legacy method for compatibility  
-        bool WouldBlockPaths(GapDetector.WallInfo w)
+        private bool WouldBlockPaths(GapDetector.WallInfo w)
         {
-            return WouldBlockPaths(
+            return WouldBlockAllPaths(
                 w.orientation == WallState.Orientation.Horizontal ? GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical,
                 w.x, w.y
             );
         }
         
-        // REMOVED: ClearTemporaryWall method - now using GridSystem.RemoveWallOccupancy()
-        
         /// <summary>
-        /// FIXED: Check if a pawn has a path to their goal using proper target determination
-        /// According to Quoridor rules, players must reach the opposite side of where they started
+        /// NEW: Validate all current pawn paths after a wall has been placed
+        /// Called after wall placement to ensure game state is still valid
         /// </summary>
-        private bool HasPathToTargetSide(WallChessGameManager.PawnData pawn)
+        public bool ValidateAllPawnPaths()
         {
-            Vector2Int currentPos = pawn.position;
-            int gridSize = gameManager.gridSize;
-            
-            // Get all possible goal tiles for this pawn
-            List<Vector2Int> goalTiles = GetGoalTiles(pawn, gridSize);
-            
-            // Test if there's a path to ANY goal tile
-            foreach (Vector2Int goalTile in goalTiles)
-            {
-                // Skip if target tile is occupied by another pawn
-                if (gridSystem.IsTileOccupied(goalTile))
-                {
-                    // Check if it's occupied by this same pawn (already at goal)
-                    if (goalTile == currentPos)
-                        return true;
-                    continue;
-                }
-                
-                // Check if path exists to this goal tile
-                if (gridSystem.PathExists(currentPos, goalTile))
-                {
-                    return true; // Found at least one reachable tile on goal side
-                }
-            }
-            
-            Debug.Log($"No path found for pawn at {currentPos} to any goal tile");
-            return false; // No reachable tiles on goal side
+            return GridPathfinder.AllPawnsHaveValidPaths(gridSystem, gameManager);
         }
         
         /// <summary>
-        /// FIXED: Get all possible goal tiles for a pawn based on their starting position
-        /// Returns all tiles on the opposite side of the board from where the pawn started
+        /// NEW: Get shortest path length for a specific pawn to their goal
+        /// Returns -1 if no path exists
         /// </summary>
-        private List<Vector2Int> GetGoalTiles(WallChessGameManager.PawnData pawn, int gridSize)
+        public int GetShortestPathLength(WallChessGameManager.PawnData pawn)
+        {
+            if (pawn == null || gameManager == null) return -1;
+            
+            Vector2Int currentPos = pawn.position;
+            List<Vector2Int> goalTiles = GetGoalTiles(pawn);
+            
+            int shortestLength = int.MaxValue;
+            bool foundPath = false;
+            
+            // Find shortest path to any goal tile
+            foreach (Vector2Int goalTile in goalTiles)
+            {
+                // Skip if target tile is occupied by another pawn
+                if (gridSystem.IsTileOccupied(goalTile) && goalTile != currentPos)
+                    continue;
+                
+                int pathLength = GridPathfinder.GetPathLength(gridSystem, currentPos, goalTile);
+                if (pathLength >= 0 && pathLength < shortestLength)
+                {
+                    shortestLength = pathLength;
+                    foundPath = true;
+                }
+            }
+            
+            return foundPath ? shortestLength : -1;
+        }
+        
+        /// <summary>
+        /// NEW: Get all possible goal tiles for a pawn based on their starting position
+        /// </summary>
+        private List<Vector2Int> GetGoalTiles(WallChessGameManager.PawnData pawn)
         {
             List<Vector2Int> goalTiles = new List<Vector2Int>();
             Vector2Int startPos = pawn.startPosition;
-            
-            // Determine which side of the board the pawn started on and set opposite as goal
+            int gridSize = gameManager.gridSize;
             
             if (startPos.y == 0) // Started at bottom row (y=0)
             {
@@ -188,63 +174,48 @@ namespace WallChess
                 }
             }
             
-            Debug.Log($"Pawn at {pawn.position} (started at {startPos}) has {goalTiles.Count} goal tiles");
             return goalTiles;
         }
         
+        #region Debug Methods
+        
         /// <summary>
-        /// FIXED: Get the target row for a given pawn based on their starting position
-        /// Player starting at bottom (y=0) needs to reach top (y=gridSize-1)
-        /// Player starting at top (y=gridSize-1) needs to reach bottom (y=0)
+        /// Debug method to test pathfinding for all pawns
         /// </summary>
-        private int GetTargetRow(WallChessGameManager.PawnData pawn)
+        public void DebugPrintAllPawnPaths()
         {
-            // If pawn started at bottom row, target is top row
-            if (pawn.startPosition.y == 0)
-                return gameManager.gridSize - 1;
+            Debug.Log("=== PAWN PATHFINDING DEBUG ===");
             
-            // If pawn started at top row, target is bottom row
-            if (pawn.startPosition.y == gameManager.gridSize - 1)
-                return 0;
+            if (gameManager?.pawns == null)
+            {
+                Debug.Log("No pawns found in gameManager");
+                return;
+            }
             
-            // For 4-player games with side positions, use middle as default target
-            return pawn.startPosition.y == 0 ? gameManager.gridSize - 1 : 0;
+            for (int i = 0; i < gameManager.pawns.Count; i++)
+            {
+                var pawn = gameManager.pawns[i];
+                int pathLength = GetShortestPathLength(pawn);
+                
+                Debug.Log($"Pawn {i} at {pawn.position}: " + 
+                         (pathLength >= 0 ? $"Shortest path = {pathLength} moves" : "No path available"));
+            }
         }
         
         /// <summary>
-        /// Check if pawn movement is horizontal (left-to-right or right-to-left)
-        /// This applies to 4-player games where some pawns start on the sides
+        /// Debug method to validate current game state
         /// </summary>
-        private bool IsHorizontalMovement(WallChessGameManager.PawnData pawn)
+        public void DebugValidateGameState()
         {
-            // Pawns starting at left or right edges move horizontally
-            return pawn.startPosition.x == 0 || pawn.startPosition.x == gameManager.gridSize - 1;
+            bool allValid = ValidateAllPawnPaths();
+            Debug.Log($"Game state validation: {(allValid ? "VALID" : "INVALID - Some pawns have no path to goal")}");
+            
+            if (!allValid)
+            {
+                DebugPrintAllPawnPaths();
+            }
         }
         
-        /// <summary>
-        /// Get the target column for horizontal-moving pawns (4-player games)
-        /// </summary>
-        private int GetTargetColumn(WallChessGameManager.PawnData pawn)
-        {
-            // If pawn started at left edge, target is right edge
-            if (pawn.startPosition.x == 0)
-                return gameManager.gridSize - 1;
-            
-            // If pawn started at right edge, target is left edge
-            if (pawn.startPosition.x == gameManager.gridSize - 1)
-                return 0;
-            
-            // Default fallback
-            return pawn.startPosition.x == 0 ? gameManager.gridSize - 1 : 0;
-        }
-        
-        private Vector2Int GetPlayerGoalPosition(bool isPlayer)
-        {
-            int goalY = isPlayer ? gameManager.gridSize - 1 : 0;
-            return new Vector2Int(gameManager.gridSize / 2, goalY);
-        }
-
-        // Removed old pathfinding methods - now using GridSystem.PathExists() and GridSystem.FindPath()
-        // This provides better integration with the unified grid system
+        #endregion
     }
 }
