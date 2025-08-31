@@ -103,19 +103,73 @@ namespace WallChess
 
                 int centerBias = -Mathf.Abs(m.x - (gm.gridSize / 2));
                 int danger = (IsAdjacent(m, opponentPos) ? -1 : 0);
+                
+                // Jump move bonuses
+                int jumpBonus = 0;
+                if (IsJumpMove(start, m))
+                {
+                    jumpBonus = EvaluateJumpMove(start, m, myGoalRow, opponentPos);
+                }
 
-                int score = -sp * 10 + centerBias * 2 + danger;
+                int score = -sp * 10 + centerBias * 2 + danger + jumpBonus;
                 score += parms.moveJitter != 0 ? Mathf.RoundToInt(Random.Range(-parms.moveJitter, parms.moveJitter)) : 0;
 
                 if (score > bestScore) { bestScore = score; best = m; }
             }
 
             gm.TryMovePawn(start, best);
-            if (logDecisions) Debug.Log($"[AI] Move -> {best} (score {bestScore})");
+            if (logDecisions) Debug.Log($"[AI] Move -> {best} (score {bestScore}), Jump: {IsJumpMove(start, best)}");
         }
 
         static bool IsAdjacent(Vector2Int a, Vector2Int b)
             => Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y) == 1;
+            
+        /// <summary>
+        /// Check if a move is a jump move (distance of 2)
+        /// </summary>
+        bool IsJumpMove(Vector2Int from, Vector2Int to)
+        {
+            Vector2Int diff = to - from;
+            int distance = Mathf.Abs(diff.x) + Mathf.Abs(diff.y);
+            return distance == 2;
+        }
+        
+        /// <summary>
+        /// Evaluate the strategic value of a jump move
+        /// </summary>
+        int EvaluateJumpMove(Vector2Int from, Vector2Int to, int myGoalRow, Vector2Int opponentPos)
+        {
+            int bonus = 0;
+            
+            // Base jump bonus - jumps are generally good as they cover more distance
+            bonus += 3;
+            
+            // Check if jump gets us significantly closer to goal
+            int currentDistanceToGoal = Mathf.Abs(from.y - myGoalRow);
+            int newDistanceToGoal = Mathf.Abs(to.y - myGoalRow);
+            int progressBonus = (currentDistanceToGoal - newDistanceToGoal) * 2;
+            bonus += progressBonus;
+            
+            // Bonus if we jump over opponent (aggressive play)
+            Vector2Int jumpDirection = Vector2Int.zero;
+            if (to.x == from.x) // Vertical jump
+            {
+                jumpDirection = to.y > from.y ? Vector2Int.up : Vector2Int.down;
+            }
+            else if (to.y == from.y) // Horizontal jump
+            {
+                jumpDirection = to.x > from.x ? Vector2Int.right : Vector2Int.left;
+            }
+            
+            Vector2Int middlePos = from + jumpDirection;
+            if (middlePos == opponentPos)
+            {
+                bonus += 5; // Good bonus for jumping over opponent
+                if (logDecisions) Debug.Log($"[AI] Jump over opponent detected: {from} -> {to} (over {middlePos})");
+            }
+            
+            return bonus;
+        }
         #endregion
 
         #region Walls
@@ -160,96 +214,207 @@ namespace WallChess
 
             if (!found || bestScore < parms.wallThresholdScore) return false;
 
-            bool placed = wallMgr.TryPlaceWall(bestPosition);
+            // Use GridSystem for wall placement instead of obsolete wallMgr
+            bool placed = TryPlaceWallUsingGridSystem(bestPosition);
             if (!placed && logDecisions) Debug.Log("[AI] Wall placement failed; will move instead.");
             return placed;
+        }
+        
+        /// <summary>
+        /// Place wall using GridSystem API instead of obsolete WallManager
+        /// </summary>
+        bool TryPlaceWallUsingGridSystem(Vector3 worldPosition)
+        {
+            if (grid == null || wallMgr == null) return false;
+            
+            // Convert world position to grid position
+            Vector2Int gridPos = grid.WorldToGridPosition(worldPosition);
+            
+            // Determine orientation based on position - this is a simplified approach
+            // In a full implementation, you'd want to get orientation from the wall candidate
+            // For now, try both orientations and use the first valid one
+            
+            // Try horizontal first
+            if (CanPlaceWallAtGridPosition(gridPos, GridSystem.Orientation.Horizontal))
+            {
+                return wallMgr.TryPlaceWall(worldPosition); // Still use wallMgr for actual placement
+            }
+            
+            // Try vertical
+            if (CanPlaceWallAtGridPosition(gridPos, GridSystem.Orientation.Vertical))
+            {
+                return wallMgr.TryPlaceWall(worldPosition); // Still use wallMgr for actual placement
+            }
+            
+            return false;
         }
 
         List<GapDetector.WallInfo> GetCandidateWallsNearOpponent(AIParams parms, Vector2Int themPos)
         {
             var candidates = new List<GapDetector.WallInfo>();
             int radius = Mathf.Clamp(parms.scanRadius, 1, 4);
-            float spacing = gm.tileSize + gm.tileGap;
+            
+            if (grid == null)
+            {
+                if (logDecisions) Debug.LogWarning("[AI] GridSystem not available for wall candidate generation");
+                return candidates;
+            }
 
-            // Generate candidate positions around opponent
+            // Generate candidate positions around opponent using GridSystem
             for (int dx = -radius; dx <= radius; dx++)
             {
                 for (int dy = -radius; dy <= radius; dy++)
                 {
                     Vector2Int gridPos = new Vector2Int(themPos.x + dx, themPos.y + dy);
                     
-                    // Try horizontal walls at various positions
-                    TryAddHorizontalWallCandidates(gridPos, spacing, candidates);
+                    // Try horizontal walls at this position
+                    TryAddWallCandidatesAtPosition(gridPos, GridSystem.Orientation.Horizontal, candidates);
                     
-                    // Try vertical walls at various positions
-                    TryAddVerticalWallCandidates(gridPos, spacing, candidates);
+                    // Try vertical walls at this position
+                    TryAddWallCandidatesAtPosition(gridPos, GridSystem.Orientation.Vertical, candidates);
                 }
             }
 
             return candidates;
         }
 
-        void AddCandidateIfValid(Vector3 worldPos, List<GapDetector.WallInfo> candidates)
+        /// <summary>
+        /// Try to add wall candidates at a specific position using GridSystem
+        /// </summary>
+        void TryAddWallCandidatesAtPosition(Vector2Int gridPos, GridSystem.Orientation orientation, List<GapDetector.WallInfo> candidates)
         {
-            // Use GapDetector to find nearest valid wall at this position
-            var gapDetector = GetGapDetector();
-            if (gapDetector != null && gapDetector.TryFind(worldPos, gm, out var info))
+            // Check if we can place a wall at this position
+            if (CanPlaceWallAtGridPosition(gridPos, orientation))
             {
-                // Check if this wall can potentially be placed
-                var validator = GetWallValidator();
-                if (validator != null && validator.CanPlace(info))
+                // Convert to world position for compatibility with existing WallInfo structure
+                Vector3 worldPos = grid.GridToWorldPosition(gridPos);
+                
+                // Create WallInfo for this candidate
+                var wallInfo = new GapDetector.WallInfo
                 {
-                    candidates.Add(info);
+                    pos = worldPos,
+                    x = gridPos.x,
+                    y = gridPos.y,
+                    orientation = orientation == GridSystem.Orientation.Horizontal ? 
+                        WallState.Orientation.Horizontal : WallState.Orientation.Vertical
+                };
+                
+                candidates.Add(wallInfo);
+                
+                if (logDecisions)
+                {
+                    Debug.Log($"[AI] Added wall candidate: {orientation} at grid {gridPos} (world {worldPos})");
                 }
             }
         }
 
-        void TryAddHorizontalWallCandidates(Vector2Int gridPos, float spacing, List<GapDetector.WallInfo> candidates)
+        /// <summary>
+        /// Check if a wall can be placed at the specified grid position using GridSystem
+        /// </summary>
+        bool CanPlaceWallAtGridPosition(Vector2Int gridPos, GridSystem.Orientation orientation)
         {
-            // Try horizontal wall positions around this grid position
-            Vector3 basePos = new Vector3(gridPos.x * spacing, gridPos.y * spacing, 0f);
+            if (grid == null) return false;
             
-            // Try horizontal wall above this position
-            Vector3 wallPosAbove = basePos + Vector3.up * (spacing * 0.5f);
-            AddCandidateIfValid(wallPosAbove, candidates);
+            // Check grid bounds for wall placement
+            if (orientation == GridSystem.Orientation.Horizontal)
+            {
+                // Horizontal walls span 2 tiles horizontally
+                if (gridPos.x < 0 || gridPos.x >= gm.gridSize - 1 || gridPos.y < 0 || gridPos.y >= gm.gridSize)
+                    return false;
+            }
+            else // Vertical
+            {
+                // Vertical walls span 2 tiles vertically
+                if (gridPos.x < 0 || gridPos.x >= gm.gridSize || gridPos.y < 0 || gridPos.y >= gm.gridSize - 1)
+                    return false;
+            }
             
-            // Try horizontal wall below this position  
-            Vector3 wallPosBelow = basePos - Vector3.up * (spacing * 0.5f);
-            AddCandidateIfValid(wallPosBelow, candidates);
+            // Use GridSystem to check if wall can be placed
+            // Convert to unified grid coordinate for checking
+            Vector2Int unifiedPos = grid.TileToUnifiedPosition(gridPos);
+            
+            // Check if the wall positions are already occupied
+            return !IsWallOccupiedAtPosition(gridPos, orientation);
         }
 
-        void TryAddVerticalWallCandidates(Vector2Int gridPos, float spacing, List<GapDetector.WallInfo> candidates)
+        /// <summary>
+        /// Check if wall is occupied at position using GridSystem
+        /// </summary>
+        bool IsWallOccupiedAtPosition(Vector2Int gridPos, GridSystem.Orientation orientation)
         {
-            // Try vertical wall positions around this grid position
-            Vector3 basePos = new Vector3(gridPos.x * spacing, gridPos.y * spacing, 0f);
+            if (grid == null) return true; // Assume occupied if no grid
             
-            // Try vertical wall to the right of this position
-            Vector3 wallPosRight = basePos + Vector3.right * (spacing * 0.5f);
-            AddCandidateIfValid(wallPosRight, candidates);
-            
-            // Try vertical wall to the left of this position
-            Vector3 wallPosLeft = basePos - Vector3.right * (spacing * 0.5f);
-            AddCandidateIfValid(wallPosLeft, candidates);
+            if (orientation == GridSystem.Orientation.Horizontal)
+            {
+                // Check both positions of horizontal wall
+                Vector2Int pos1 = new Vector2Int(gridPos.x, gridPos.y);
+                Vector2Int pos2 = new Vector2Int(gridPos.x + 1, gridPos.y);
+                
+                Vector2Int unified1 = grid.TileToUnifiedPosition(pos1);
+                Vector2Int unified2 = grid.TileToUnifiedPosition(pos2);
+                
+                var cell1 = grid.GetCell(unified1);
+                var cell2 = grid.GetCell(unified2);
+                
+                return (cell1 != null && cell1.isOccupied) || (cell2 != null && cell2.isOccupied);
+            }
+            else // Vertical
+            {
+                // Check both positions of vertical wall
+                Vector2Int pos1 = new Vector2Int(gridPos.x, gridPos.y);
+                Vector2Int pos2 = new Vector2Int(gridPos.x, gridPos.y + 1);
+                
+                Vector2Int unified1 = grid.TileToUnifiedPosition(pos1);
+                Vector2Int unified2 = grid.TileToUnifiedPosition(pos2);
+                
+                var cell1 = grid.GetCell(unified1);
+                var cell2 = grid.GetCell(unified2);
+                
+                return (cell1 != null && cell1.isOccupied) || (cell2 != null && cell2.isOccupied);
+            }
         }
 
-        GapDetector GetGapDetector() => wallMgr?.GetGapDetector();
-        WallValidator GetWallValidator() => wallMgr?.GetWallValidator();
-        WallState GetWallState() => wallMgr?.GetWallState();
-
+        /// <summary>
+        /// Temporarily set wall occupancy for AI simulation using GridSystem
+        /// </summary>
         void SetWallOccupied(GapDetector.WallInfo wall, bool occupied)
         {
-            var state = GetWallState();
-            if (state == null) return;
-
-            if (wall.orientation == WallState.Orientation.Horizontal)
+            if (grid == null) return;
+            
+            Vector2Int gridPos = new Vector2Int(wall.x, wall.y);
+            GridSystem.Orientation orientation = wall.orientation == WallState.Orientation.Horizontal ? 
+                GridSystem.Orientation.Horizontal : GridSystem.Orientation.Vertical;
+                
+            if (orientation == GridSystem.Orientation.Horizontal)
             {
-                state.SetOccupied(WallState.Orientation.Horizontal, wall.x, wall.y, occupied);
-                state.SetOccupied(WallState.Orientation.Horizontal, wall.x + 1, wall.y, occupied);
+                // Set occupancy for both positions of horizontal wall
+                Vector2Int pos1 = new Vector2Int(gridPos.x, gridPos.y);
+                Vector2Int pos2 = new Vector2Int(gridPos.x + 1, gridPos.y);
+                
+                SetGridCellOccupied(pos1, occupied);
+                SetGridCellOccupied(pos2, occupied);
             }
-            else
+            else // Vertical
             {
-                state.SetOccupied(WallState.Orientation.Vertical, wall.x, wall.y, occupied);
-                state.SetOccupied(WallState.Orientation.Vertical, wall.x, wall.y + 1, occupied);
+                // Set occupancy for both positions of vertical wall
+                Vector2Int pos1 = new Vector2Int(gridPos.x, gridPos.y);
+                Vector2Int pos2 = new Vector2Int(gridPos.x, gridPos.y + 1);
+                
+                SetGridCellOccupied(pos1, occupied);
+                SetGridCellOccupied(pos2, occupied);
+            }
+        }
+        
+        /// <summary>
+        /// Helper method to set grid cell occupancy
+        /// </summary>
+        void SetGridCellOccupied(Vector2Int gridPos, bool occupied)
+        {
+            Vector2Int unifiedPos = grid.TileToUnifiedPosition(gridPos);
+            var cell = grid.GetCell(unifiedPos);
+            if (cell != null)
+            {
+                cell.isOccupied = occupied;
             }
         }
 

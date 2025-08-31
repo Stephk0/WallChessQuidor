@@ -21,7 +21,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: M_GB_Wall
-  m_Shader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
+  m_Shader: {fileID: 4800000, guid: da7e4c5b8f647454c8d3db95042dbcb7, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -30,10 +30,8 @@ Material:
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
-  stringTagMap:
-    RenderType: Opaque
-  disabledShaderPasses:
-  - MOTIONVECTORS
+  stringTagMap: {}
+  disabledShaderPasses: []
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
@@ -98,6 +96,7 @@ Material:
     m_Floats:
     - _AddPrecomputedVelocity: 0
     - _AlphaClip: 0
+    - _AlphaCutoff: 0.5
     - _AlphaToMask: 0
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
@@ -114,23 +113,39 @@ Material:
     - _GlossMapScale: 0
     - _Glossiness: 0
     - _GlossyReflections: 0
+    - _GroundMax: 0.4
+    - _GroundMin: 0.02
     - _Metallic: 0
     - _OcclusionStrength: 1
     - _Parallax: 0.005
+    - _QueueControl: 0
     - _QueueOffset: 0
     - _ReceiveShadows: 1
+    - _ScreenVigBlendAmt: 1
+    - _ScreenVigSmoothStepMax: 0.8
+    - _ScreenVigSmoothStepMin: 0
     - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1
     - _SrcBlendAlpha: 1
     - _Surface: 0
+    - _VColorContr: 0.267
     - _WorkflowMode: 1
     - _ZWrite: 1
     m_Colors:
     - _BaseColor: {r: 0.98490566, g: 0.8438869, b: 0.5036026, a: 1}
     - _Color: {r: 0.98490566, g: 0.8438869, b: 0.5036026, a: 1}
+    - _DarkCol: {r: 0.6301887, g: 0.47997794, b: 0.46491277, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
+    - _GroundCol: {r: 0.2754717, g: 0.21688755, b: 0.13877535, a: 1}
+    - _LightCol: {r: 0.97735846, g: 0.87583804, b: 0.78004265, a: 0}
+    - _LightSP: {r: -0, g: 1, b: 0, a: 0}
+    - _MainColor: {r: 0.39215687, g: 0.39215687, b: 0.39215687, a: 1}
+    - _ScreenVigDark: {r: 0.5555744, g: 0.4806479, b: 0.78867924, a: 1}
+    - _ScreenVigLight: {r: 0.90943396, g: 0.9051651, b: 0.8219224, a: 0}
+    - _ScreenVignetteOffset: {r: 0, g: 0.06, b: 0, a: 0}
+    - _ScreenVignetteScale: {r: 1, g: 0.5, b: 0, a: 0}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

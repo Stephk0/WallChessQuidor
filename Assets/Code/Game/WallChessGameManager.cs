@@ -411,11 +411,12 @@ namespace WallChess
         private void ShowValidMovesForActivePawn()
         {
             var activePawn = GetActivePawn();
-            if (activePawn != null && highlightManager != null && gridSystem != null)
+            if (activePawn != null && highlightManager != null && playerController != null)
             {
-                List<Vector2Int> validMoves = gridSystem.GetValidMoves(activePawn.position);
+                // Use PlayerController's GetValidMoves which includes jump logic
+                List<Vector2Int> validMoves = playerController.GetValidMoves(activePawn.position);
                 highlightManager.ShowValidMoveHighlights(validMoves, gridSystem);
-                Debug.Log($"Always showing {validMoves.Count} valid move highlights for active pawn {activePlayerIndex}");
+                Debug.Log($"Always showing {validMoves.Count} valid move highlights for active pawn {activePlayerIndex} (includes jumps)");
             }
         }
 
@@ -489,8 +490,8 @@ namespace WallChess
             var pawn = pawns[pawnIndex];
             Vector2Int fromPosition = pawn.position;
 
-            // Validate the move through grid system
-            List<Vector2Int> validMoves = gridSystem.GetValidMoves(fromPosition);
+            // Use PlayerController's GetValidMoves which includes jump logic
+            List<Vector2Int> validMoves = playerController?.GetValidMoves(fromPosition) ?? new List<Vector2Int>();
             if (!validMoves.Contains(toPosition))
             {
                 Debug.LogWarning($"Invalid move from {fromPosition} to {toPosition}");

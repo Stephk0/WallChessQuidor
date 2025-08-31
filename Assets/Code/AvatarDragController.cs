@@ -13,6 +13,8 @@ namespace WallChess
         private bool isDragging = false;
         private Vector3 originalPosition;
         private Vector2Int originalGridPosition;
+        private Vector2Int lastHighlightedPosition = Vector2Int.one * -1; // Track last highlighted position
+        private bool wasLastPositionValid = false; // Track if last position was valid
         
         public void Initialize(PlayerControllerV2 ctrl, bool isPlayer)
         {
@@ -40,6 +42,10 @@ namespace WallChess
             isDragging = true;
             originalPosition = transform.position;
             originalGridPosition = controller.GetAvatarPosition(isPlayerAvatar);
+            
+            // Reset highlight tracking when starting drag
+            lastHighlightedPosition = Vector2Int.one * -1;
+            wasLastPositionValid = false;
         }
 
         void OnMouseDrag()
@@ -49,24 +55,30 @@ namespace WallChess
                 Vector3 mouseWorldPos = GetMouseWorldPosition();
                 transform.position = mouseWorldPos;
                 
-                // Show confirm highlight when dragging over a valid move
                 Vector2Int targetGridPos = controller.WorldToGridPosition(mouseWorldPos);
-                if (controller.IsValidMove(originalGridPosition, targetGridPos))
+                bool isValidMove = controller.IsValidMove(originalGridPosition, targetGridPos);
+                
+                // Only update highlights when position or validity changes
+                if (targetGridPos != lastHighlightedPosition || isValidMove != wasLastPositionValid)
                 {
                     HighlightManager highlightManager = controller.GetHighlightManager();
                     if (highlightManager != null)
                     {
-                        highlightManager.ShowConfirmHighlight(targetGridPos, controller.GetGridSystem());
+                        if (isValidMove)
+                        {
+                            // Show confirm highlight for valid move
+                            highlightManager.ShowConfirmHighlight(targetGridPos, controller.GetGridSystem());
+                        }
+                        else
+                        {
+                            // Clear confirm highlight for invalid move
+                            highlightManager.ClearConfirmHighlights();
+                        }
                     }
-                }
-                else
-                {
-                    // Clear confirm highlight when not over a valid move
-                    HighlightManager highlightManager = controller.GetHighlightManager();
-                    if (highlightManager != null)
-                    {
-                        highlightManager.ClearConfirmHighlights();
-                    }
+                    
+                    // Update tracking variables
+                    lastHighlightedPosition = targetGridPos;
+                    wasLastPositionValid = isValidMove;
                 }
             }
         }
@@ -102,6 +114,9 @@ namespace WallChess
                 }
                 
                 isDragging = false;
+                // Reset highlight tracking when ending drag
+                lastHighlightedPosition = Vector2Int.one * -1;
+                wasLastPositionValid = false;
             }
         }
 
