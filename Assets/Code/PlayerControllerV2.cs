@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine.Events;
 
 namespace WallChess
 {
@@ -10,8 +11,13 @@ namespace WallChess
         private HighlightManager highlightManager;
         private Camera mainCamera;
         
+        [Header("Pie Dial Control")]
+        [SerializeField] private PieDial pieDial;
+        [SerializeField] private bool enablePieDialControl = true;
+        [SerializeField] private float directionThreshold = 0.7f; // Minimum magnitude to register direction
+        
         [Header("Debug")]
-        public bool enableDebugLogs = true;
+        public bool enableDebugLogs = true; // Fixed compilation issues
 
         public void Initialize(WallChessGameManager gm)
         {
@@ -23,8 +29,138 @@ namespace WallChess
             // Add drag controllers to both avatars
             SetupAvatarDragControllers();
             
+            // Setup pie dial if available
+            SetupPieDialControl();
+            
             if (enableDebugLogs) Debug.Log("PlayerControllerV2 initialized with unified grid system");
         }
+        
+        #region Pie Dial Control
+        
+        void SetupPieDialControl()
+        {
+            if (!enablePieDialControl || pieDial == null) return;
+            
+            // Subscribe to direction confirmed event
+            pieDial.OnDirectionConfirmed.AddListener(OnPieDialDirectionConfirmed);
+            
+            if (enableDebugLogs) Debug.Log("Pie dial control initialized");
+        }
+        
+        void OnPieDialDirectionConfirmed(Vector2 direction)
+        {
+            if (!enablePieDialControl) return;
+            
+            // Only process if it's the current player's turn
+            if (!CanMoveAvatar(true)) return;
+            
+            // Convert direction to grid movement
+            Vector2Int gridDirection = ConvertDirectionToGridMovement(direction);
+            if (gridDirection == Vector2Int.zero) return;
+            
+            // Get current player position
+            Vector2Int currentPos = GetAvatarPosition(true);
+            Vector2Int targetPos = currentPos + gridDirection;
+            
+            // Validate and execute move
+            if (IsValidMove(currentPos, targetPos))
+            {
+                MoveAvatar(true, targetPos);
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"Pie dial move executed: {currentPos} -> {targetPos} (direction: {direction})");
+                }
+            }
+            else
+            {
+                // Try jump move if direct move is invalid
+                List<Vector2Int> validMoves = GetValidMoves(currentPos);
+                Vector2Int bestMove = FindBestMoveInDirection(validMoves, currentPos, gridDirection);
+                
+                if (bestMove != Vector2Int.zero)
+                {
+                    MoveAvatar(true, bestMove);
+                    if (enableDebugLogs)
+                    {
+                        Debug.Log($"Pie dial jump move executed: {currentPos} -> {bestMove} (direction: {direction})");
+                    }
+                }
+                else if (enableDebugLogs)
+                {
+                    Debug.Log($"No valid move found for pie dial direction: {direction}");
+                }
+            }
+        }
+        
+        Vector2Int ConvertDirectionToGridMovement(Vector2 direction)
+        {
+            // Normalize and check magnitude
+            float magnitude = direction.magnitude;
+            if (magnitude < directionThreshold) return Vector2Int.zero;
+            
+            Vector2 normalized = direction / magnitude;
+            
+            // Convert to 4-directional movement (snap to cardinal directions)
+            Vector2Int gridDirection = Vector2Int.zero;
+            
+            // Determine primary direction
+            if (Mathf.Abs(normalized.x) > Mathf.Abs(normalized.y))
+            {
+                // Horizontal movement
+                gridDirection = normalized.x > 0 ? Vector2Int.right : Vector2Int.left;
+            }
+            else
+            {
+                // Vertical movement
+                gridDirection = normalized.y > 0 ? Vector2Int.up : Vector2Int.down;
+            }
+            
+            return gridDirection;
+        }
+        
+        Vector2Int FindBestMoveInDirection(List<Vector2Int> validMoves, Vector2Int fromPos, Vector2Int preferredDirection)
+        {
+            Vector2Int bestMove = Vector2Int.zero;
+            float bestScore = -1f;
+            
+            foreach (Vector2Int move in validMoves)
+            {
+                Vector2Int moveDirection = move - fromPos;
+                
+                // Calculate how well this move aligns with preferred direction
+                Vector2 moveDir = new Vector2(moveDirection.x, moveDirection.y).normalized;
+                Vector2 preferredDir = new Vector2(preferredDirection.x, preferredDirection.y).normalized;
+                float dotProduct = Vector2.Dot(moveDir, preferredDir);
+                
+                if (dotProduct > bestScore)
+                {
+                    bestScore = dotProduct;
+                    bestMove = move;
+                }
+            }
+            
+            // Only return move if it's reasonably aligned (> 0.5 means < 60 degrees off)
+            return bestScore > 0.5f ? bestMove : Vector2Int.zero;
+        }
+        
+        /// <summary>
+        /// Public method to manually trigger pie dial movement (for external systems)
+        /// </summary>
+        public void MovePawnWithPieDial(Vector2 direction)
+        {
+            OnPieDialDirectionConfirmed(direction);
+        }
+        
+        void OnDestroy()
+        {
+            // Cleanup pie dial event subscription
+            if (pieDial != null)
+            {
+                pieDial.OnDirectionConfirmed.RemoveListener(OnPieDialDirectionConfirmed);
+            }
+        }
+        
+        #endregion
         
         void SetupAvatarDragControllers()
         {
@@ -272,8 +408,6 @@ namespace WallChess
             return false;
         }
 
-
-
         public bool IsValidMove(Vector2Int from, Vector2Int to)
         {
             // Check if it's a single step move or a jump move
@@ -344,9 +478,9 @@ namespace WallChess
         }
 
         // Alias methods for AvatarDragController compatibility
-        public Vector3 GridToWorldPosition(Vector2Int gridPos) => GetWorldPosition(gridPos);
-        public Vector2Int WorldToGridPosition(Vector3 worldPos) => GetGridPosition(worldPos);
 
+        public Vector2Int WorldToGridPosition(Vector3 worldPos) => GetGridPosition(worldPos);
+        public Vector3 GridToWorldPosition(Vector2Int gridPos) => GetWorldPosition(gridPos);
         #region Public API
         public WallChessGameManager GetGameManager() => gameManager;
         public GridSystem GetGridSystem() => gridSystem;

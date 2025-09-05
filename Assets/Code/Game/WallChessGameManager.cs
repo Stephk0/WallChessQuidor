@@ -123,6 +123,7 @@ namespace WallChess
         private WallManager wallManager;
         private HighlightManager highlightManager;
         private WallValidator wallValidator;
+        private TileAnimationController tileAnimationController;
         
         // CLEAN EVENT SYSTEM - UI accessible events
         public static System.Action<WallPlacementResult> OnWallPlacedComplete;
@@ -186,6 +187,77 @@ namespace WallChess
                 Debug.LogWarning("WallValidator not initialized");
             }
         }
+        
+        [ContextMenu("Animation/Test One By One Animation")]
+        private void Ctx_TestOneByOneAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.OneByOne);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Test Row Animation")]
+        private void Ctx_TestRowAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.RowByRow);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Test Circular Animation")]
+        private void Ctx_TestCircularAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.CircularSpiral);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Test Ripple Animation")]
+        private void Ctx_TestRippleAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.Ripple);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Skip Animation")]
+        private void Ctx_SkipAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.CompleteAnimationImmediately();
+            }
+        }
+        
+        [ContextMenu("Animation/Toggle Pacing Curve")]
+        private void Ctx_TogglePacingCurve()
+        {
+            if (tileAnimationController != null)
+            {
+                tileAnimationController.TogglePacingCurve();
+                Debug.Log($"Pacing curve is now {(tileAnimationController.IsPacingCurveEnabled() ? "ENABLED" : "DISABLED")}");
+            }
+        }
 
         void Start()
         {
@@ -206,7 +278,9 @@ namespace WallChess
                 wallHeight = this.wallHeight
             };
             
-            gridSystem.Initialize(gridSettings);
+            // Skip tile creation if we're going to animate them
+            bool skipTileCreation = true; // We'll always use animation for charm
+            gridSystem.Initialize(gridSettings, default, skipTileCreation);
 
             // Initialize Player Pawn System
             InitializePlayerPawnSystem();
@@ -235,8 +309,12 @@ namespace WallChess
                 gridSystem.SetTileOccupied(pawn.position, true);
             }
 
-            //init game state to player turn for now
-            ChangeState(GameState.PlayerTurn);
+            // Initialize TileAnimationController
+            InitializeTileAnimation();
+            
+            //init game state to BuildTiles for animated tile creation
+            ChangeState(GameState.BuildTiles);
+            StartTileAnimationSequence();
 
             // Subscribe to events
             gridSystem.OnTileOccupancyChanged += OnTileOccupancyChanged;
@@ -252,6 +330,46 @@ namespace WallChess
             }
             
             Debug.Log($"Game initialized with {pawns.Count} players. Active player: {activePlayerIndex}");
+        }
+        
+        void InitializeTileAnimation()
+        {
+            // Add TileAnimationController if it doesn't exist
+            tileAnimationController = GetComponent<TileAnimationController>();
+            if (tileAnimationController == null)
+            {
+                tileAnimationController = gameObject.AddComponent<TileAnimationController>();
+                Debug.Log("WallChessGameManager: Added TileAnimationController component");
+            }
+            
+            // Initialize the animation controller
+            tileAnimationController.Initialize(gridSystem, this);
+            
+            // Subscribe to animation events
+            tileAnimationController.OnTileAnimationCompleted += OnTileAnimationCompleted;
+            
+            Debug.Log("TileAnimationController initialized");
+        }
+        
+        void StartTileAnimationSequence()
+        {
+            if (tileAnimationController != null)
+            {
+                tileAnimationController.StartTileAnimation();
+                Debug.Log("Tile animation sequence started");
+            }
+            else
+            {
+                Debug.LogError("TileAnimationController not found - skipping animation");
+                ChangeState(GameState.PlayerTurn);
+            }
+        }
+        
+        private void OnTileAnimationCompleted()
+        {
+            Debug.Log("Tile animation completed - transitioning to PlayerTurn");
+            ChangeState(GameState.PlayerTurn);
+            SetActivePlayer(0); // Start with first player
         }
 
         void InitializePlayerPawnSystem()
@@ -359,6 +477,9 @@ namespace WallChess
         {
             switch (currentState)
             {
+                case GameState.BuildTiles:
+                    currentAction = ActionType.Idle;
+                    break;
                 case GameState.PlayerTurn:
                     currentAction = ActionType.Idle;
                     break;
@@ -869,6 +990,12 @@ namespace WallChess
                 gridSystem.OnTileOccupancyChanged -= OnTileOccupancyChanged;
                 gridSystem.OnWallPlaced -= OnWallPlaced;
                 gridSystem.OnGridCleared -= OnGridCleared;
+            }
+            
+            // Unsubscribe from animation events
+            if (tileAnimationController != null)
+            {
+                tileAnimationController.OnTileAnimationCompleted -= OnTileAnimationCompleted;
             }
             
             // WallValidator cleanup no longer needed with new on-demand system

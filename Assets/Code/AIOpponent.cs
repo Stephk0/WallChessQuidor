@@ -201,6 +201,18 @@ namespace WallChess
                 int score = deltaOpp * 12 - deltaMe * 8;
 
                 if (deltaOpp >= 2 && deltaMe <= 1) score += 8;
+                
+                // VERTICAL WALL PREFERENCE - bonus for vertical walls to block player paths
+                if (candidate.orientation == WallState.Orientation.Vertical) 
+                    score += 6; // Strong preference for vertical walls
+                
+                // AGGRESSIVE BLOCKING BONUS - extra points for walls near player
+                int distanceToPlayer = Mathf.Abs(candidate.x - themPos.x) + Mathf.Abs(candidate.y - themPos.y);
+                if (distanceToPlayer <= 2) 
+                    score += 8; // High bonus for walls close to player
+                if (distanceToPlayer == 1) 
+                    score += 12; // Maximum bonus for adjacent walls
+                
                 score += CenterBonus(candidate);
                 score += parms.wallJitter != 0 ? Mathf.RoundToInt(Random.Range(-parms.wallJitter, parms.wallJitter)) : 0;
 
@@ -260,6 +272,9 @@ namespace WallChess
                 return candidates;
             }
 
+            // AGGRESSIVE VERTICAL BLOCKING - prioritize positions that block forward movement
+            AddAggressiveVerticalBlockingWalls(themPos, candidates);
+
             // Generate candidate positions around opponent using GridSystem
             for (int dx = -radius; dx <= radius; dx++)
             {
@@ -267,15 +282,39 @@ namespace WallChess
                 {
                     Vector2Int gridPos = new Vector2Int(themPos.x + dx, themPos.y + dy);
                     
-                    // Try horizontal walls at this position
-                    TryAddWallCandidatesAtPosition(gridPos, GridSystem.Orientation.Horizontal, candidates);
-                    
-                    // Try vertical walls at this position
+                    // PRIORITIZE VERTICAL WALLS - try them first and more often
                     TryAddWallCandidatesAtPosition(gridPos, GridSystem.Orientation.Vertical, candidates);
+                    
+                    // Add horizontal walls with lower priority
+                    TryAddWallCandidatesAtPosition(gridPos, GridSystem.Orientation.Horizontal, candidates);
                 }
             }
 
             return candidates;
+        }
+
+        /// <summary>
+        /// Add aggressive vertical walls that directly block player's forward progress
+        /// </summary>
+        void AddAggressiveVerticalBlockingWalls(Vector2Int playerPos, List<GapDetector.WallInfo> candidates)
+        {
+            // Target positions directly in front of player to block forward movement
+            Vector2Int[] blockingPositions = {
+                new Vector2Int(playerPos.x - 1, playerPos.y + 1), // Left-front diagonal block
+                new Vector2Int(playerPos.x, playerPos.y + 1),     // Direct front block
+                new Vector2Int(playerPos.x + 1, playerPos.y + 1), // Right-front diagonal block
+                new Vector2Int(playerPos.x - 1, playerPos.y),     // Left side block
+                new Vector2Int(playerPos.x + 1, playerPos.y),     // Right side block
+            };
+            
+            foreach (var pos in blockingPositions)
+            {
+                // Focus on vertical walls for maximum blocking efficiency
+                TryAddWallCandidatesAtPosition(pos, GridSystem.Orientation.Vertical, candidates);
+                
+                if (logDecisions)
+                    Debug.Log($"[AI] Added aggressive vertical blocking candidate at {pos}");
+            }
         }
 
         /// <summary>
@@ -477,50 +516,50 @@ namespace WallChess
                 case Difficulty.Beginner:
                     return new AIParams
                     {
-                        wallThresholdScore = 10,
+                        wallThresholdScore = 6,  // More aggressive - lowered from 10
                         moveJitter = 3,
                         wallJitter = 6,
-                        wallBias = 0.15f,
+                        wallBias = 0.40f,        // More walls - increased from 0.15f
                         scanRadius = 2
                     };
 
                 case Difficulty.Casual:
                     return new AIParams
                     {
-                        wallThresholdScore = 12,
+                        wallThresholdScore = 8,  // More aggressive - lowered from 12
                         moveJitter = 2,
                         wallJitter = 4,
-                        wallBias = 0.30f,
+                        wallBias = 0.55f,        // More walls - increased from 0.30f
                         scanRadius = 3
                     };
 
                 case Difficulty.Intermediate:
                     return new AIParams
                     {
-                        wallThresholdScore = 14,
+                        wallThresholdScore = 10, // More aggressive - lowered from 14
                         moveJitter = 1,
                         wallJitter = 2,
-                        wallBias = 0.45f,
+                        wallBias = 0.70f,        // More walls - increased from 0.45f
                         scanRadius = 3
                     };
 
                 case Difficulty.Advanced:
                     return new AIParams
                     {
-                        wallThresholdScore = 16,
+                        wallThresholdScore = 12, // More aggressive - lowered from 16
                         moveJitter = 0,
                         wallJitter = 1,
-                        wallBias = 0.55f,
+                        wallBias = 0.80f,        // More walls - increased from 0.55f
                         scanRadius = 4
                     };
 
                 default: // Expert
                     return new AIParams
                     {
-                        wallThresholdScore = 18,
+                        wallThresholdScore = 14, // More aggressive - lowered from 18
                         moveJitter = 0,
                         wallJitter = 0,
-                        wallBias = 0.65f,
+                        wallBias = 0.95f,        // Maximum aggression - increased from 0.65f
                         scanRadius = 4
                     };
             }
@@ -530,7 +569,15 @@ namespace WallChess
         {
             int lead = theirSP - mySP;
             float baseChance = p.wallBias + Mathf.Clamp01((-lead) * 0.05f);
-            return Random.value < baseChance;
+            
+            // AGGRESSIVE WALL PLACEMENT - bonus chance early in game and when opponent is advancing
+            int wallsUsed = 10 - gm.opponentWallsRemaining; // How many walls we've used
+            if (wallsUsed < 3) baseChance += 0.25f; // Extra aggressive in early game
+            
+            // Extra aggressive when opponent is close to winning
+            if (theirSP <= 3) baseChance += 0.30f;
+            
+            return Random.value < Mathf.Clamp01(baseChance);
         }
         #endregion
     }

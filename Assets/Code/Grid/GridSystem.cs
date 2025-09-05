@@ -80,9 +80,19 @@ namespace WallChess
         [SerializeField] private GridAlignment gridAlignment = GridAlignment.Default;
         
         [Header("Tile Visual Settings")]
+        [SerializeField] private GameObject[] tilePrefabs;
+        [SerializeField] private Material lightTileMaterial;
+        [SerializeField] private Material darkTileMaterial;
+        [SerializeField] private bool reversePattern = false;
+        [SerializeField] private bool randomizeMaterials = false;
+        
+        // Fallback settings for when no prefabs are provided
         [SerializeField] private Material tileMaterial;
         [SerializeField] private Color lightTileColor = Color.white;
         [SerializeField] private Color darkTileColor = Color.gray;
+        
+        [Header("Debug Settings")]
+        [SerializeField] private bool verboseMaterialLogging = false;
         
         [Header("UI Text Settings")]
         [SerializeField] private bool showTileLabels = true;
@@ -105,7 +115,7 @@ namespace WallChess
         #endregion
 
         #region Initialization
-        public void Initialize(GridSettings settings, GapConfiguration gaps = default)
+        public void Initialize(GridSettings settings, GapConfiguration gaps = default, bool skipTileCreation = false)
         {
             gridSettings = settings;
             gapConfig = gaps;
@@ -125,10 +135,25 @@ namespace WallChess
             fullGridSize = gridSettings.gridSize * 2 + 1;
             
             InitializeComponents();
-            CreateGrid();
             
-            Debug.Log($"GridSystem initialized: {gridSettings.gridSize}x{gridSettings.gridSize} tiles, " +
-                     $"unified grid: {fullGridSize}x{fullGridSize}, spacing={gridSettings.TileSpacing}");
+            // Validate tile prefab configuration
+            ValidateTileConfiguration();
+            
+            if (skipTileCreation)
+            {
+                // Only initialize grid structure for animation
+                InitializeGridStructureOnly();
+                Debug.Log($"GridSystem initialized for animation: {gridSettings.gridSize}x{gridSettings.gridSize} tiles (structure only)");
+            }
+            else
+            {
+                CreateGrid();
+                Debug.Log($"GridSystem initialized: {gridSettings.gridSize}x{gridSettings.gridSize} tiles created immediately");
+            }
+            
+            Debug.Log($"GridSystem: unified grid: {fullGridSize}x{fullGridSize}, spacing={gridSettings.TileSpacing}, " +
+                     $"tile prefabs: {(tilePrefabs?.Length ?? 0)}, materials: {(lightTileMaterial ? "configured" : "fallback")}" +
+                     $"{(verboseMaterialLogging ? ", verbose logging enabled" : "")}");
         }
 
         private void InitializeComponents()
@@ -195,12 +220,12 @@ namespace WallChess
             {
                 for (int y = 0; y < gridSettings.gridSize * 2; y += 2)
                 {
-                    CreateTileAt(x, y);
+                    CreateTileAtUnified(x, y);
                 }
             }
         }
         
-        private void CreateTileAt(int unifiedX, int unifiedY)
+        private void CreateTileAtUnified(int unifiedX, int unifiedY)
         {
             if (unifiedGrid[unifiedX, unifiedY].cellType != CellType.Tile) return;
             
@@ -208,26 +233,147 @@ namespace WallChess
             Vector2Int tilePos = UnifiedToTilePosition(new Vector2Int(unifiedX, unifiedY));
             Vector3 worldPosition = coordinateConverter.GridToWorldPosition(tilePos);
             
-            GameObject tile = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            tile.name = $"Tile_{tilePos.x}_{tilePos.y}";
-            tile.transform.position = worldPosition;
-            tile.transform.localScale = Vector3.one * gridSettings.tileSize;
-            tile.transform.parent = transform;
+            // Determine tile material based on pattern (with reverse and randomize options)
+            bool isLightTile = DetermineTileMaterial(tilePos);
             
-            Renderer tileRenderer = tile.GetComponent<Renderer>();
-            
-            if (tileMaterial != null)
-                tileRenderer.material = tileMaterial;
+            GameObject tile;
+            if (tilePrefabs != null && tilePrefabs.Length > 0)
+            {
+                // Randomly select a prefab from the array for variety
+                GameObject selectedPrefab = GetRandomTilePrefab();
+                if (selectedPrefab != null)
+                {
+                    tile = Instantiate(selectedPrefab, worldPosition, Quaternion.identity, transform);
+                    
+                    // Apply appropriate material to the tile
+                    ApplyTileMaterial(tile, isLightTile);
+                }
+                else
+                {
+                    // Fallback if selected prefab is null
+                    tile = CreateFallbackTile(worldPosition, isLightTile);
+                }
+            }
             else
-                tileRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            {
+                // Fallback to primitive quad if no prefabs provided
+                tile = CreateFallbackTile(worldPosition, isLightTile);
+            }
             
-            tileRenderer.material.color = (tilePos.x + tilePos.y) % 2 == 0 ? 
-                lightTileColor : darkTileColor;
+            tile.name = $"Tile_{tilePos.x}_{tilePos.y}_{(isLightTile ? "Light" : "Dark")}";
+            tile.transform.localScale = Vector3.one * gridSettings.tileSize;
             
-            if (tile.GetComponent<Collider>() != null)
-                DestroyImmediate(tile.GetComponent<Collider>());
+            // Remove collider if it exists (we handle input differently)
+            Collider tileCollider = tile.GetComponent<Collider>();
+            if (tileCollider != null)
+                DestroyImmediate(tileCollider);
             
             unifiedGrid[unifiedX, unifiedY].visualObject = tile;
+        }
+        
+        private GameObject GetRandomTilePrefab()
+        {
+            if (tilePrefabs == null || tilePrefabs.Length == 0) return null;
+            
+            // Randomly select from available prefabs
+            int randomIndex = Random.Range(0, tilePrefabs.Length);
+            return tilePrefabs[randomIndex];
+        }
+        
+        private GameObject CreateFallbackTile(Vector3 worldPosition, bool isLightTile)
+        {
+            GameObject tile = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            tile.transform.position = worldPosition;
+            tile.transform.parent = transform;
+            
+            // Apply fallback material with checkerboard pattern
+            ApplyFallbackMaterial(tile, isLightTile);
+            
+            return tile;
+        }
+        
+        private bool DetermineTileMaterial(Vector2Int tilePos)
+        {
+            bool isLightTile;
+            
+            if (randomizeMaterials)
+            {
+                // Randomize each tile's material
+                isLightTile = Random.Range(0, 2) == 0;
+            }
+            else
+            {
+                // Standard checkerboard pattern
+                isLightTile = (tilePos.x + tilePos.y) % 2 == 0;
+                
+                // Apply reverse pattern if enabled
+                if (reversePattern)
+                    isLightTile = !isLightTile;
+            }
+            
+            return isLightTile;
+        }
+        
+        private void ApplyTileMaterial(GameObject tile, bool isLightTile)
+        {
+            // Get all renderers in the prefab hierarchy (root + children)
+            Renderer[] tileRenderers = tile.GetComponentsInChildren<Renderer>();
+            if (tileRenderers == null || tileRenderers.Length == 0)
+            {
+                Debug.LogWarning($"No Renderer components found in tile prefab '{tile.name}' or its children!");
+                return;
+            }
+            
+            Material materialToUse = isLightTile ? lightTileMaterial : darkTileMaterial;
+            
+            if (materialToUse != null)
+            {
+                // Apply material to all renderers in the prefab
+                foreach (Renderer renderer in tileRenderers)
+                {
+                    if (renderer != null)
+                    {
+                        renderer.sharedMaterial = materialToUse; // Use sharedMaterial to avoid leaks
+                    }
+                }
+                
+                if (verboseMaterialLogging)
+                {
+                    Debug.Log($"Applied {(isLightTile ? "light" : "dark")} material '{materialToUse.name}' to {tileRenderers.Length} renderer(s) in tile '{tile.name}'");
+                }
+            }
+            else
+            {
+                // Fallback if materials not configured
+                ApplyFallbackMaterial(tile, isLightTile);
+            }
+        }
+        
+        private void ApplyFallbackMaterial(GameObject tile, bool isLightTile)
+        {
+            // Get all renderers in the prefab hierarchy (root + children)
+            Renderer[] tileRenderers = tile.GetComponentsInChildren<Renderer>();
+            if (tileRenderers == null || tileRenderers.Length == 0)
+            {
+                Debug.LogWarning($"No Renderer components found in fallback tile '{tile.name}' or its children!");
+                return;
+            }
+            
+            Material tileMatToUse;
+            if (tileMaterial != null)
+                tileMatToUse = tileMaterial;
+            else
+                tileMatToUse = new Material(Shader.Find("Sprites/Default"));
+            
+            // Apply fallback color and material to all renderers
+            foreach (Renderer renderer in tileRenderers)
+            {
+                if (renderer != null)
+                {
+                    renderer.sharedMaterial = tileMatToUse; // Use sharedMaterial to avoid leaks
+                    tileMatToUse.color = isLightTile ? lightTileColor : darkTileColor;
+                }
+            }
         }
         #endregion
 
@@ -235,6 +381,7 @@ namespace WallChess
         public GridSettings GetGridSettings() => gridSettings;
         public Vector2Int GetGridDimensions() => new Vector2Int(gridSettings.gridSize, gridSettings.gridSize);
         public float GetTileSpacing() => gridSettings.TileSpacing;
+        public float GetTileSize() => gridSettings.tileSize;
         public int GetGridSize() => gridSettings.gridSize;
         public GridAlignment GetGridAlignment() => gridAlignment;
         #endregion
@@ -506,7 +653,7 @@ namespace WallChess
         }
 
         public void ReconfigureGrid(GridSettings newSettings, GapConfiguration newGaps = default, 
-            GridAlignment newAlignment = default)
+            GridAlignment newAlignment = default, bool skipTileCreation = false)
         {
             // Update alignment if provided
             if (!newAlignment.Equals(default(GridAlignment)))
@@ -518,7 +665,7 @@ namespace WallChess
             DestroyExistingGrid();
 
             // Reinitialize with new settings
-            Initialize(newSettings, newGaps);
+            Initialize(newSettings, newGaps, skipTileCreation);
         }
 
         private void DestroyExistingGrid()
@@ -556,6 +703,212 @@ namespace WallChess
         public List<Vector2Int> FindPath(Vector2Int fromTile, Vector2Int toTile)
         {
             return GridPathfinder.FindPath(this, fromTile, toTile);
+        }
+        #endregion
+
+        #region Tile Configuration Management
+        /// <summary>
+        /// Gets the tile prefabs array
+        /// </summary>
+        public GameObject[] GetTilePrefabs() => tilePrefabs;
+        
+        /// <summary>
+        /// Gets count of available tile prefabs
+        /// </summary>
+        public int GetTilePrefabCount() => tilePrefabs?.Length ?? 0;
+        
+        /// <summary>
+        /// Gets a specific tile prefab by index
+        /// </summary>
+        public GameObject GetTilePrefab(int index)
+        {
+            if (tilePrefabs == null || index < 0 || index >= tilePrefabs.Length)
+                return null;
+            return tilePrefabs[index];
+        }
+        
+        /// <summary>
+        /// Gets the light tile material
+        /// </summary>
+        public Material GetLightTileMaterial() => lightTileMaterial;
+        
+        /// <summary>
+        /// Gets the dark tile material
+        /// </summary>
+        public Material GetDarkTileMaterial() => darkTileMaterial;
+        
+        /// <summary>
+        /// Gets whether the pattern is reversed
+        /// </summary>
+        public bool IsPatternReversed() => reversePattern;
+        
+        /// <summary>
+        /// Gets whether materials are randomized
+        /// </summary>
+        public bool AreMaterialsRandomized() => randomizeMaterials;
+        
+        /// <summary>
+        /// Sets the tile prefabs array
+        /// </summary>
+        public void SetTilePrefabs(GameObject[] prefabs)
+        {
+            tilePrefabs = prefabs;
+        }
+        
+        /// <summary>
+        /// Sets the light tile material
+        /// </summary>
+        public void SetLightTileMaterial(Material material)
+        {
+            lightTileMaterial = material;
+        }
+        
+        /// <summary>
+        /// Sets the dark tile material
+        /// </summary>
+        public void SetDarkTileMaterial(Material material)
+        {
+            darkTileMaterial = material;
+        }
+        
+        /// <summary>
+        /// Sets whether to reverse the tile pattern
+        /// </summary>
+        public void SetReversePattern(bool reverse)
+        {
+            reversePattern = reverse;
+        }
+        
+        /// <summary>
+        /// Sets whether to randomize materials
+        /// </summary>
+        public void SetRandomizeMaterials(bool randomize)
+        {
+            randomizeMaterials = randomize;
+        }
+        
+        /// <summary>
+        /// Validates that tile configuration is properly set up
+        /// </summary>
+        public bool ValidateTileConfiguration()
+        {
+            bool isValid = true;
+            
+            if (tilePrefabs == null || tilePrefabs.Length == 0)
+            {
+                Debug.LogWarning($"[{name}] No tile prefabs configured - using fallback primitive rendering");
+                isValid = false;
+            }
+            
+            if (lightTileMaterial == null)
+            {
+                Debug.LogWarning($"[{name}] No light tile material configured - using fallback material");
+                isValid = false;
+            }
+            
+            if (darkTileMaterial == null)
+            {
+                Debug.LogWarning($"[{name}] No dark tile material configured - using fallback material");
+                isValid = false;
+            }
+            
+            // Check for null prefabs in array
+            if (tilePrefabs != null)
+            {
+                for (int i = 0; i < tilePrefabs.Length; i++)
+                {
+                    if (tilePrefabs[i] == null)
+                    {
+                        Debug.LogError($"[{name}] Tile prefab at index {i} is null!");
+                        isValid = false;
+                    }
+                    else
+                    {
+                        // Check if prefab has a renderer component (root or children)
+                        Renderer[] prefabRenderers = tilePrefabs[i].GetComponentsInChildren<Renderer>();
+                        if (prefabRenderers == null || prefabRenderers.Length == 0)
+                        {
+                            Debug.LogError($"[{name}] Tile prefab '{tilePrefabs[i].name}' has no Renderer components in hierarchy!");
+                            isValid = false;
+                        }
+                    }
+                }
+            }
+            
+            return isValid;
+        }
+        
+        /// <summary>
+        /// Regenerates all tiles with current configuration (useful after changing materials/patterns)
+        /// </summary>
+        public void RegenerateTiles()
+        {
+            // Destroy existing tiles
+            for (int x = 0; x < fullGridSize; x += 2)
+            {
+                for (int y = 0; y < fullGridSize; y += 2)
+                {
+                    GridCell cell = unifiedGrid[x, y];
+                    if (cell?.visualObject != null)
+                    {
+                        DestroyImmediate(cell.visualObject);
+                        cell.visualObject = null;
+                    }
+                }
+            }
+            
+            // Recreate all tiles with new configuration
+            CreateAllTiles();
+        }
+        #endregion
+        
+        #region Animation Support
+        /// <summary>
+        /// Create a single tile at the specified position for animation purposes
+        /// </summary>
+        public GameObject CreateAnimatedTileAt(Vector2Int tilePos)
+        {
+            Vector2Int unifiedPos = TileToUnifiedPosition(tilePos);
+            
+            if (!IsValidUnifiedPosition(unifiedPos))
+            {
+                Debug.LogError($"Invalid tile position for animation: {tilePos}");
+                return null;
+            }
+            
+            if (unifiedGrid[unifiedPos.x, unifiedPos.y].cellType != CellType.Tile)
+            {
+                Debug.LogError($"Position {tilePos} is not a tile position");
+                return null;
+            }
+            
+            // If tile already exists, return it
+            if (unifiedGrid[unifiedPos.x, unifiedPos.y].visualObject != null)
+            {
+                return unifiedGrid[unifiedPos.x, unifiedPos.y].visualObject;
+            }
+            
+            // Create the tile using the same logic as CreateTileAt
+            CreateTileAtUnified(unifiedPos.x, unifiedPos.y);
+            return unifiedGrid[unifiedPos.x, unifiedPos.y].visualObject;
+        }
+        
+        /// <summary>
+        /// Initialize grid structure without creating visual tiles (for animation)
+        /// </summary>
+        public void InitializeGridStructureOnly()
+        {
+            InitializeUnifiedGrid();
+            // Don't create tiles - they'll be created by animation
+            Debug.Log("GridSystem: Structure initialized without tiles for animation");
+        }
+        
+        /// <summary>
+        /// Create all tiles immediately (skip animation)
+        /// </summary>
+        public void CreateAllTilesImmediate()
+        {
+            CreateAllTiles();
         }
         #endregion
 

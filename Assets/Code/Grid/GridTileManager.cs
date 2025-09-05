@@ -11,23 +11,21 @@ namespace WallChess.Grid
         private GameObject[,] _gridTiles;
         private bool[,] _tileOccupied;
         
-        private readonly Material _tileMaterial;
-        private readonly Color _lightTileColor;
-        private readonly Color _darkTileColor;
+        private readonly GameObject[] _lightTilePrefabs;
+        private readonly GameObject[] _darkTilePrefabs;
         private readonly float _tileSize;
 
         public System.Action<Vector2Int, bool> OnTileOccupancyChanged;
 
         public GridTileManager(GridCoordinateConverter coordinateConverter, 
-            Transform parentTransform, float tileSize, Material tileMaterial = null, 
-            Color lightColor = default, Color darkColor = default)
+            Transform parentTransform, float tileSize, 
+            GameObject[] lightTilePrefabs = null, GameObject[] darkTilePrefabs = null)
         {
             _coordinateConverter = coordinateConverter;
             _parentTransform = parentTransform;
             _tileSize = tileSize;
-            _tileMaterial = tileMaterial;
-            _lightTileColor = lightColor == default ? Color.white : lightColor;
-            _darkTileColor = darkColor == default ? Color.gray : darkColor;
+            _lightTilePrefabs = lightTilePrefabs ?? new GameObject[0];
+            _darkTilePrefabs = darkTilePrefabs ?? new GameObject[0];
             
             InitializeArrays();
         }
@@ -60,24 +58,46 @@ namespace WallChess.Grid
         {
             Vector3 worldPosition = _coordinateConverter.GridToWorldPosition(gridPos);
             
-            GameObject tile = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            tile.name = $"Tile_{gridPos.x}_{gridPos.y}";
-            tile.transform.position = worldPosition;
-            tile.transform.localScale = Vector3.one * _tileSize;
-            tile.transform.parent = _parentTransform;
+            bool isLightTile = (gridPos.x + gridPos.y) % 2 == 0;
+            GameObject[] prefabArray = isLightTile ? _lightTilePrefabs : _darkTilePrefabs;
             
-            Renderer tileRenderer = tile.GetComponent<Renderer>();
+            GameObject tilePrefab = null;
+            if (prefabArray != null && prefabArray.Length > 0)
+            {
+                // Use random prefab from the appropriate array for variety
+                int randomIndex = Random.Range(0, prefabArray.Length);
+                tilePrefab = prefabArray[randomIndex];
+            }
             
-            if (_tileMaterial != null)
-                tileRenderer.material = _tileMaterial;
+            GameObject tile;
+            if (tilePrefab != null)
+            {
+                tile = Object.Instantiate(tilePrefab, worldPosition, Quaternion.identity, _parentTransform);
+            }
             else
-                tileRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            {
+                // Fallback to primitive quad if no prefabs provided
+                tile = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                tile.transform.position = worldPosition;
+                tile.transform.parent = _parentTransform;
+                
+                // Apply fallback material with checkerboard pattern
+                Renderer tileRenderer = tile.GetComponent<Renderer>();
+                if (tileRenderer != null)
+                {
+                    Material defaultMat = new Material(Shader.Find("Sprites/Default"));
+                    defaultMat.color = isLightTile ? Color.white : Color.gray;
+                    tileRenderer.sharedMaterial = defaultMat; // Use sharedMaterial to avoid leaks
+                }
+            }
             
-            tileRenderer.material.color = (gridPos.x + gridPos.y) % 2 == 0 ? 
-                _lightTileColor : _darkTileColor;
+            tile.name = $"Tile_{gridPos.x}_{gridPos.y}_{(isLightTile ? "Light" : "Dark")}";
+            tile.transform.localScale = Vector3.one * _tileSize;
             
-            if (tile.GetComponent<Collider>() != null)
-                Object.DestroyImmediate(tile.GetComponent<Collider>());
+            // Remove collider if it exists (we handle input differently)
+            Collider tileCollider = tile.GetComponent<Collider>();
+            if (tileCollider != null)
+                Object.DestroyImmediate(tileCollider);
             
             _gridTiles[gridPos.x, gridPos.y] = tile;
         }
@@ -154,6 +174,36 @@ namespace WallChess.Grid
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Gets count of available light tile prefabs
+        /// </summary>
+        public int GetLightTilePrefabCount() => _lightTilePrefabs?.Length ?? 0;
+
+        /// <summary>
+        /// Gets count of available dark tile prefabs  
+        /// </summary>
+        public int GetDarkTilePrefabCount() => _darkTilePrefabs?.Length ?? 0;
+
+        /// <summary>
+        /// Gets a specific light tile prefab by index
+        /// </summary>
+        public GameObject GetLightTilePrefab(int index)
+        {
+            if (_lightTilePrefabs == null || index < 0 || index >= _lightTilePrefabs.Length)
+                return null;
+            return _lightTilePrefabs[index];
+        }
+
+        /// <summary>
+        /// Gets a specific dark tile prefab by index
+        /// </summary>
+        public GameObject GetDarkTilePrefab(int index)
+        {
+            if (_darkTilePrefabs == null || index < 0 || index >= _darkTilePrefabs.Length)
+                return null;
+            return _darkTilePrefabs[index];
         }
     }
 }
