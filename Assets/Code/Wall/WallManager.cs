@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 using WallChess.Grid;
 
@@ -13,6 +14,7 @@ namespace WallChess
     /// - P: Toggle pathfinding visualization on/off
     /// - O: Cycle through debug modes (Off, Pawn1Only, Pawn2Only, BothPawns)
     /// - R: Refresh visualization
+    /// - M: Test smooth rotation on existing walls
     /// 
     /// Visualization Colors:
     /// - Green: Valid path tiles
@@ -30,6 +32,14 @@ namespace WallChess
         [Header("Wall Prefabs")]
         [SerializeField] private List<GameObject> wallPrefabs = new List<GameObject>();
         [Tooltip("List of wall prefabs to randomly choose from for placement")]
+        
+        [Header("Rotation Animation")]
+        [SerializeField] private float rotationLerpDuration = 0.3f;
+        [Tooltip("Duration in seconds for smooth rotation transitions")]
+        [SerializeField] private AnimationCurve rotationCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+        [Tooltip("Animation curve for rotation interpolation")]
+        [SerializeField] private bool enableRotationLerp = true;
+        [Tooltip("Enable smooth rotation animation for wall prefabs")]
         
         [Header("Prefab Orientation")]
         [SerializeField] private Vector3 horizontalRotation = Vector3.zero;
@@ -52,8 +62,8 @@ namespace WallChess
 
         [Header("Snap & Lanes")]
         [SerializeField] private float gapSnapMargin = 0.25f;
-        [SerializeField] private float laneSnapMargin = 0.5f;  // Increased for new intersection approach
-        [SerializeField] private float unlockMultiplier = 1.8f; // Balanced for smooth orientation switching
+        [SerializeField] private float laneSnapMargin = 0.5f;
+        [SerializeField] private float unlockMultiplier = 1.8f;
         
         [Header("Pathfinding Debug Visualization")]
         [SerializeField] private bool enablePathfindingVisualization = false;
@@ -71,6 +81,7 @@ namespace WallChess
         private WallPlacementController placement;
         private GridPathfindingVisualizer pathfindingVisualizer;
         private List<GameObject> managedWalls = new List<GameObject>();
+        private Dictionary<GameObject, Coroutine> rotationCoroutines = new Dictionary<GameObject, Coroutine>();
 
         public void Initialize(WallChessGameManager gm)
         {
@@ -83,7 +94,6 @@ namespace WallChess
                 return;
             }
 
-            // Get the coordinate converter from the grid system to respect alignment
             coordinateConverter = GetCoordinateConverterFromGrid();
             if (coordinateConverter == null)
             {
@@ -91,26 +101,18 @@ namespace WallChess
                 return;
             }
 
-            // Validate prefab setup
             ValidatePrefabSetup();
 
-            // Initialize unified systems that use GridSystem as source of truth
-            // UPDATED: New WallValidator with on-demand pathfinding validation
             validator = new WallValidator(gridSystem, gameManager);
             visuals = new WallVisuals(GetActivePrefab(), GetActiveMaterial(), validPreviewColor, invalidPreviewColor, placingPreviewColor);
-            visuals.SetWallManager(this); // Set reference for advanced preview features
+            visuals.SetWallManager(this);
             placement = new WallPlacementController(this, gameManager, gridSystem, validator, visuals, placementPlaneZ);
             
-            // Initialize pathfinding visualizer
             InitializePathfindingVisualizer();
 
             Debug.Log($"WallManager initialized with on-demand pathfinding validation. Debug mode: {boxForPrefabDebugMode}, Pathfinding visualization: {enablePathfindingVisualization}");
         }
 
-        /// <summary>
-        /// Gets the coordinate converter from the grid system using reflection
-        /// since GridCoordinateConverter is private in GridSystem
-        /// </summary>
         private GridCoordinateConverter GetCoordinateConverterFromGrid()
         {
             var field = typeof(GridSystem).GetField("coordinateConverter", 
@@ -121,15 +123,11 @@ namespace WallChess
                 return (GridCoordinateConverter)field.GetValue(gridSystem);
             }
 
-            // Fallback: create our own converter using grid settings
             var settings = gridSystem.GetGridSettings();
             var alignment = gridSystem.GetGridAlignment();
             return new GridCoordinateConverter(settings.TileSpacing, settings.gridSize, alignment);
         }
 
-        /// <summary>
-        /// Validates prefab setup and provides warnings if needed
-        /// </summary>
         private void ValidatePrefabSetup()
         {
             if (boxForPrefabDebugMode)
@@ -151,7 +149,6 @@ namespace WallChess
                 }
                 else
                 {
-                    // Check for null prefabs in the list
                     for (int i = wallPrefabs.Count - 1; i >= 0; i--)
                     {
                         if (wallPrefabs[i] == null)
@@ -169,14 +166,10 @@ namespace WallChess
             }
         }
         
-        /// <summary>
-        /// Initialize the pathfinding visualizer if enabled
-        /// </summary>
         private void InitializePathfindingVisualizer()
         {
             if (!enablePathfindingVisualization) return;
             
-            // Create visualizer GameObject as child of WallManager
             GameObject visualizerGO = new GameObject("PathfindingVisualizer");
             visualizerGO.transform.parent = transform;
             
@@ -187,9 +180,6 @@ namespace WallChess
             Debug.Log($"PathfindingVisualizer initialized with mode: {pathfindingDebugMode}");
         }
 
-        /// <summary>
-        /// Gets the active prefab based on current mode
-        /// </summary>
         private GameObject GetActivePrefab()
         {
             if (boxForPrefabDebugMode)
@@ -199,32 +189,22 @@ namespace WallChess
             
             if (wallPrefabs != null && wallPrefabs.Count > 0)
             {
-                // For now, return the first valid prefab. Could be randomized later if desired.
                 return wallPrefabs[0];
             }
             
-            // Fallback to debug prefab
             Debug.LogWarning("WallManager: No valid prefabs available, falling back to debug prefab.");
             return wallPrefab;
         }
 
-        /// <summary>
-        /// Gets the active material based on current mode
-        /// </summary>
         private Material GetActiveMaterial()
         {
             if (boxForPrefabDebugMode)
             {
                 return wallMaterial;
             }
-            
-            // In prefab mode, materials should come from the prefab itself
             return null;
         }
 
-        /// <summary>
-        /// Gets a random wall prefab from the list (for variety in wall placement)
-        /// </summary>
         public GameObject GetRandomWallPrefab()
         {
             if (boxForPrefabDebugMode || wallPrefabs == null || wallPrefabs.Count == 0)
@@ -243,7 +223,6 @@ namespace WallChess
         {
             if (boxForPrefabDebugMode)
             {
-                // In debug mode, we still use scaling, so no rotation needed
                 return Quaternion.identity;
             }
 
@@ -253,32 +232,106 @@ namespace WallChess
             
             return Quaternion.Euler(targetRotation);
         }
-
+        
         /// <summary>
-        /// Gets the scale for walls (used mainly in debug mode)
+        /// Applies smooth rotation to a wall GameObject with lerping
         /// </summary>
+        public void ApplySmoothRotation(GameObject wallObject, GridSystem.Orientation newOrientation)
+        {
+            Debug.Log($"ApplySmoothRotation called for {wallObject?.name} to {newOrientation}. Lerp enabled: {enableRotationLerp}, Debug mode: {boxForPrefabDebugMode}");
+            
+            if (wallObject == null || !enableRotationLerp || boxForPrefabDebugMode)
+            {
+                if (wallObject != null)
+                    wallObject.transform.rotation = GetWallRotation(newOrientation);
+                return;
+            }
+            
+            if (rotationCoroutines.ContainsKey(wallObject))
+            {
+                if (rotationCoroutines[wallObject] != null)
+                    StopCoroutine(rotationCoroutines[wallObject]);
+                rotationCoroutines.Remove(wallObject);
+            }
+            
+            Coroutine rotationCoroutine = StartCoroutine(LerpWallRotation(wallObject, newOrientation));
+            rotationCoroutines[wallObject] = rotationCoroutine;
+        }
+        
+        /// <summary>
+        /// Coroutine for smoothly rotating a wall to its target orientation
+        /// </summary>
+        private System.Collections.IEnumerator LerpWallRotation(GameObject wallObject, GridSystem.Orientation targetOrientation)
+        {
+            if (wallObject == null) yield break;
+            
+            Quaternion startRotation = wallObject.transform.rotation;
+            Quaternion targetRotation = GetWallRotation(targetOrientation);
+            
+            Debug.Log($"LerpWallRotation started for {wallObject?.name} from {startRotation.eulerAngles} to {targetRotation.eulerAngles}");
+            
+            if (Quaternion.Angle(startRotation, targetRotation) < 0.1f)
+            {
+                rotationCoroutines.Remove(wallObject);
+                yield break;
+            }
+            
+            float elapsed = 0f;
+            
+            while (elapsed < rotationLerpDuration)
+            {
+                if (wallObject == null)
+                {
+                    rotationCoroutines.Remove(wallObject);
+                    yield break;
+                }
+                
+                elapsed += Time.deltaTime;
+                float t = elapsed / rotationLerpDuration;
+                float curveValue = rotationCurve.Evaluate(t);
+                
+                wallObject.transform.rotation = Quaternion.Lerp(startRotation, targetRotation, curveValue);
+                
+                yield return null;
+            }
+            
+            if (wallObject != null)
+            {
+                wallObject.transform.rotation = targetRotation;
+            }
+            
+            rotationCoroutines.Remove(wallObject);
+        }
+        
+        /// <summary>
+        /// Stops all rotation animations and cleans up coroutines
+        /// </summary>
+        public void StopAllRotationAnimations()
+        {
+            foreach (var kvp in rotationCoroutines)
+            {
+                if (kvp.Value != null)
+                    StopCoroutine(kvp.Value);
+            }
+            rotationCoroutines.Clear();
+        }
+
         public Vector3 GetWallScale(GridSystem.Orientation orientation)
         {
             if (!boxForPrefabDebugMode)
             {
-                // In prefab mode, use the prefab's natural scale
                 return Vector3.one;
             }
 
-            // Debug mode: use the original scaling logic
             var settings = gridSystem.GetGridSettings();
-            
-            // Wall spans exactly 2 tiles plus the gap between them
             float wallLength = (settings.tileSize * 2f) + settings.tileGap;
             
             if (orientation == GridSystem.Orientation.Horizontal)
             {
-                // Horizontal wall: length in X direction, thickness in Y direction
                 return new Vector3(wallLength, settings.wallThickness, settings.wallHeight);
             }
             else
             {
-                // Vertical wall: thickness in X direction, length in Y direction
                 return new Vector3(settings.wallThickness, wallLength, settings.wallHeight);
             }
         }
@@ -287,17 +340,16 @@ namespace WallChess
         {
             if (coordinateConverter == null) return;
 
-            // debug hooks kept from original
             if (Input.GetKeyDown(KeyCode.Y)) placement.RunAutomaticWallTest();
             if (Input.GetKeyDown(KeyCode.T)) placement.TestWallBlocking();
-            if (Input.GetKeyDown(KeyCode.G)) TestGapDetection(); // New gap detection test
-            if (Input.GetKeyDown(KeyCode.V)) validator.DebugValidateGameState(); // NEW: Validate current game state
-            if (Input.GetKeyDown(KeyCode.B)) validator.DebugPrintAllPawnPaths(); // NEW: Print all pawn paths
+            if (Input.GetKeyDown(KeyCode.G)) TestGapDetection();
+            if (Input.GetKeyDown(KeyCode.V)) validator.DebugValidateGameState();
+            if (Input.GetKeyDown(KeyCode.B)) validator.DebugPrintAllPawnPaths();
             
-            // Pathfinding visualization controls
             if (Input.GetKeyDown(KeyCode.P)) TogglePathfindingVisualization();
             if (Input.GetKeyDown(KeyCode.O)) CyclePathfindingDebugMode();
             if (Input.GetKeyDown(KeyCode.R)) RefreshPathfindingVisualization();
+            if (Input.GetKeyDown(KeyCode.M)) TestSmoothRotation();
 
             placement.Tick();
         }
@@ -311,11 +363,8 @@ namespace WallChess
             
             Vector3 mouseWorld = GetMouseWorld();
             Debug.Log($"Mouse world position: {mouseWorld}");
-            
-            // Test lane detection with current settings
             Debug.Log($"Current lane settings: laneSnapMargin={laneSnapMargin}, unlockMultiplier={unlockMultiplier}");
             
-            // Simulate gap detection at mouse position
             var testWallInfo = placement.FindNearestWallGap(mouseWorld);
             if (testWallInfo.HasValue)
             {
@@ -325,6 +374,43 @@ namespace WallChess
             else
             {
                 Debug.Log("No wall gap found at mouse position");
+            }
+        }
+        
+        /// <summary>
+        /// Test method to manually trigger smooth rotation on a wall (for debugging)
+        /// Press 'M' key to test rotation
+        /// </summary>
+        private void TestSmoothRotation()
+        {
+            Debug.Log("=== TESTING SMOOTH ROTATION ===");
+            
+            // Find any existing wall in the scene to test rotation
+            if (managedWalls != null && managedWalls.Count > 0)
+            {
+                GameObject testWall = managedWalls[0];
+                if (testWall != null)
+                {
+                    Debug.Log($"Testing smooth rotation on wall: {testWall.name}");
+                    Debug.Log($"Rotation settings - Duration: {rotationLerpDuration}s, Enabled: {enableRotationLerp}, Debug Mode: {boxForPrefabDebugMode}");
+                    
+                    // Toggle between horizontal and vertical for testing
+                    bool useVertical = Time.frameCount % 2 == 0; // Simple toggle based on frame count
+                    GridSystem.Orientation newOrientation = useVertical ? GridSystem.Orientation.Vertical : GridSystem.Orientation.Horizontal;
+                    
+                    Debug.Log($"Applying smooth rotation to {newOrientation}");
+                    
+                    // Test the smooth rotation
+                    ApplySmoothRotation(testWall, newOrientation);
+                }
+                else
+                {
+                    Debug.LogWarning("TestSmoothRotation: Found wall reference but GameObject is null");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("TestSmoothRotation: No walls found to test rotation on. Place a wall first.");
             }
         }
         
@@ -344,7 +430,6 @@ namespace WallChess
         {
             visuals.DestroyAll();
             
-            // Clear managed walls
             for (int i = managedWalls.Count - 1; i >= 0; i--)
             {
                 var wall = managedWalls[i];
@@ -355,7 +440,6 @@ namespace WallChess
             }
             managedWalls.Clear();
             
-            // Reset player walls
             if (gameManager != null)
             {
                 foreach (var pawn in gameManager.pawns)
@@ -364,10 +448,8 @@ namespace WallChess
                 }
             }
             
-            // Clear grid occupancy
             gridSystem?.ClearGrid();
             
-            // Refresh pathfinding visualization after clearing
             if (pathfindingVisualizer != null && enablePathfindingVisualization)
             {
                 pathfindingVisualizer.RefreshVisualization();
@@ -377,9 +459,9 @@ namespace WallChess
         void OnDestroy()
         {
             visuals.CleanupPreview();
+            StopAllRotationAnimations();
             ClearAllWalls();
             
-            // Clean up pathfinding visualizer
             if (pathfindingVisualizer != null)
             {
                 if (pathfindingVisualizer.gameObject != null)
@@ -390,7 +472,7 @@ namespace WallChess
             }
         }
 
-        // Public API for wall management
+        // Public API
         public void AddManagedWall(GameObject wall)
         {
             managedWalls.Add(wall);
@@ -398,23 +480,16 @@ namespace WallChess
         
         public bool CanPlaceWall(GridSystem.Orientation orientation, int x, int y)
         {
-            // Apply boundary constraints first
             Vector2Int constrainedPos = ApplyBoundaryConstraints(orientation, x, y);
             return gridSystem.CanPlaceWall(orientation, constrainedPos.x, constrainedPos.y);
         }
         
-        /// <summary>
-        /// CLEAN EVENT-DRIVEN: Wall placement with no direct game state management
-        /// Only handles wall placement logic - event system handles game state changes
-        /// </summary>
         public bool PlaceWall(GridSystem.Orientation orientation, int x, int y, Vector3 worldPos, Vector3 scale)
         {
-            // Apply boundary constraints first
             Vector2Int constrainedPos = ApplyBoundaryConstraints(orientation, x, y);
             x = constrainedPos.x;
             y = constrainedPos.y;
             
-            // Recalculate world position with constrained coordinates
             worldPos = GetWallWorldPosition(orientation, x, y);
             
             var wallInfo = new GridSystem.WallInfo(orientation, x, y, worldPos, scale);
@@ -424,14 +499,12 @@ namespace WallChess
             {
                 Debug.Log($"WallManager.PlaceWall: Wall placed successfully at {orientation} ({x},{y}) - OnWallPlaced event will handle game state");
                 
-                // Validate all pawn paths after placement
                 if (!validator.ValidateAllPawnPaths())
                 {
                     Debug.LogError($"CRITICAL: Wall placement at {orientation} ({x},{y}) resulted in invalid game state!");
                     validator.DebugPrintAllPawnPaths();
                 }
                 
-                // Update pathfinding visualization if enabled
                 if (updateVisualizationOnWallPlacement && pathfindingVisualizer != null)
                 {
                     pathfindingVisualizer.RefreshVisualization();
@@ -445,34 +518,21 @@ namespace WallChess
             return placed;
         }
         
-        /// <summary>
-        /// Apply boundary constraints to ensure walls are always 2 units long and within bounds
-        /// </summary>
         private Vector2Int ApplyBoundaryConstraints(GridSystem.Orientation orientation, int x, int y)
         {
             int gridSize = gridSystem.GetGridSize();
             
             if (orientation == GridSystem.Orientation.Horizontal)
             {
-                // Horizontal walls need 2 tiles horizontally (x spans from x to x+1)
-                // Max x position is gridSize-2 to ensure x+1 is still within bounds
                 int maxX = gridSize - 2;
                 x = Mathf.Clamp(x, 0, maxX);
-                
-                // Horizontal walls can be placed at any y position from 0 to gridSize-2
-                // (they separate row y from row y+1)
                 int maxY = gridSize - 2;
                 y = Mathf.Clamp(y, 0, maxY);
             }
-            else // Vertical
+            else
             {
-                // Vertical walls can be placed at any x position from 0 to gridSize-2  
-                // (they separate column x from column x+1)
                 int maxX = gridSize - 2;
                 x = Mathf.Clamp(x, 0, maxX);
-                
-                // Vertical walls need 2 tiles vertically (y spans from y to y+1)
-                // Max y position is gridSize-2 to ensure y+1 is still within bounds
                 int maxY = gridSize - 2;
                 y = Mathf.Clamp(y, 0, maxY);
             }
@@ -482,23 +542,18 @@ namespace WallChess
         
         public Vector3 GetWallWorldPosition(GridSystem.Orientation orientation, int x, int y)
         {
-            // Apply boundary constraints first to ensure walls stay within bounds
             Vector2Int constrainedPos = ApplyBoundaryConstraints(orientation, x, y);
             x = constrainedPos.x;
             y = constrainedPos.y;
             
-            // Calculate intersection point between tiles using proper grid coordinates
             if (orientation == GridSystem.Orientation.Horizontal)
             {
-                // Horizontal wall spans between tiles (x,y)-(x+1,y) and tiles (x,y+1)-(x+1,y+1)
-                // It should be centered at the intersection between these tile pairs
                 Vector2Int tile1 = new Vector2Int(x, y);
                 Vector2Int tile2 = new Vector2Int(x + 1, y + 1);
                 
                 Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
                 Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
                 
-                // Center point between the two diagonal tiles
                 return new Vector3(
                     (pos1.x + pos2.x) / 2f,
                     (pos1.y + pos2.y) / 2f,
@@ -507,15 +562,12 @@ namespace WallChess
             }
             else
             {
-                // Vertical wall spans between tiles (x,y)-(x,y+1) and tiles (x+1,y)-(x+1,y+1) 
-                // It should be centered at the intersection between these tile pairs
                 Vector2Int tile1 = new Vector2Int(x, y);
                 Vector2Int tile2 = new Vector2Int(x + 1, y + 1);
                 
                 Vector3 pos1 = gridSystem.GridToWorldPosition(tile1);
                 Vector3 pos2 = gridSystem.GridToWorldPosition(tile2);
                 
-                // Center point between the two diagonal tiles
                 return new Vector3(
                     (pos1.x + pos2.x) / 2f,
                     (pos1.y + pos2.y) / 2f,
@@ -524,11 +576,7 @@ namespace WallChess
             }
         }
         
-        #region Pathfinding Visualization Controls
-        
-        /// <summary>
-        /// Toggle pathfinding visualization on/off
-        /// </summary>
+        // Pathfinding Visualization Controls
         public void TogglePathfindingVisualization()
         {
             enablePathfindingVisualization = !enablePathfindingVisualization;
@@ -555,9 +603,6 @@ namespace WallChess
             }
         }
         
-        /// <summary>
-        /// Cycle through pathfinding debug modes
-        /// </summary>
         public void CyclePathfindingDebugMode()
         {
             if (pathfindingVisualizer != null)
@@ -577,9 +622,6 @@ namespace WallChess
             }
         }
         
-        /// <summary>
-        /// Refresh pathfinding visualization
-        /// </summary>
         public void RefreshPathfindingVisualization()
         {
             if (pathfindingVisualizer != null && enablePathfindingVisualization)
@@ -593,9 +635,6 @@ namespace WallChess
             }
         }
         
-        /// <summary>
-        /// Set specific pathfinding debug mode
-        /// </summary>
         public void SetPathfindingDebugMode(GridPathfindingVisualizer.DebugMode mode)
         {
             pathfindingDebugMode = mode;
@@ -605,9 +644,7 @@ namespace WallChess
             }
         }
         
-        #endregion
-        
-        // Public accessors for AI integration
+        // Public accessors
         public WallValidator GetWallValidator() => validator;
         public WallVisuals GetWallVisuals() => visuals;
         public WallPlacementController GetPlacementController() => placement;
@@ -615,30 +652,65 @@ namespace WallChess
         public List<GameObject> GetManagedWalls() => managedWalls;
         public GridPathfindingVisualizer GetPathfindingVisualizer() => pathfindingVisualizer;
         
-        // Public accessors for gap detection settings (for WallPlacementController)
         public float GetGapSnapMargin() => gapSnapMargin;
         public float GetLaneSnapMargin() => laneSnapMargin;
         public float GetUnlockMultiplier() => unlockMultiplier;
 
-        // Public accessors for prefab system
+        // Public accessors for rotation animation settings
+        public float GetRotationLerpDuration() => rotationLerpDuration;
+        public AnimationCurve GetRotationCurve() => rotationCurve;
+        public bool IsRotationLerpEnabled() => enableRotationLerp;
+
         public bool IsDebugMode() => boxForPrefabDebugMode;
         public Vector3 GetRotationAxis() => rotationAxis;
         public Vector3 GetHorizontalRotation() => horizontalRotation;
         public Vector3 GetVerticalRotation() => verticalRotation;
         
-        // Legacy compatibility methods for AIOpponent
+        // Legacy compatibility methods
         [System.Obsolete("Use GetGridSystem().CanPlaceWall() instead")]
         public GapDetector GetGapDetector() 
         {
             Debug.LogWarning("GetGapDetector() is obsolete. Update AIOpponent to use unified GridSystem API.");
-            return null; // Return null to force update to new API
+            return null;
         }
         
         [System.Obsolete("Use GetGridSystem() instead")]
         public WallState GetWallState()
         {
             Debug.LogWarning("GetWallState() is obsolete. Update AIOpponent to use unified GridSystem API.");
-            return null; // Return null to force update to new API
+            return null;
+        }
+
+        public int GetCurrentPlayerWallsRemaining()
+        {
+            if (gameManager == null) return 0;
+            
+            var activePawn = gameManager.GetActivePawn();
+            return activePawn?.wallsRemaining ?? 0;
+        }
+        
+        public int GetWallsPerPlayer()
+        {
+            return gameManager?.wallsPerPlayer ?? 9;
+        }
+        
+        public int GetPlayerWallsRemaining(int playerIndex)
+        {
+            if (gameManager == null || playerIndex < 0 || playerIndex >= gameManager.pawns.Count)
+                return 0;
+                
+            return gameManager.pawns[playerIndex].wallsRemaining;
+        }
+        
+        public bool CanCurrentPlayerPlaceWalls()
+        {
+            if (gameManager == null) return false;
+            
+            var activePawn = gameManager.GetActivePawn();
+            bool hasWalls = activePawn != null && activePawn.wallsRemaining > 0;
+            bool gameAllows = gameManager.CanPlaceWalls();
+            
+            return hasWalls && gameAllows;
         }
     }
 }

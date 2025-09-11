@@ -167,6 +167,45 @@ namespace WallChess
         }
         
         /// <summary>
+        /// Applies smooth rotation to an existing wall GameObject using WallManager's lerp system
+        /// </summary>
+        public void ApplySmoothRotationToWall(GameObject wallObject, GridSystem.Orientation newOrientation)
+        {
+            if (wallManager != null && wallObject != null)
+            {
+                wallManager.ApplySmoothRotation(wallObject, newOrientation);
+            }
+        }
+        
+        /// <summary>
+        /// Enhanced preview method with smooth rotation transition
+        /// </summary>
+        public void UpdatePreviewWithSmoothRotation(Vector3 pos, Vector3 scale, GridSystem.Orientation orientation, bool canPlace)
+        {
+            Debug.Log($"UpdatePreviewWithSmoothRotation called for {orientation} orientation. Lerp enabled: {wallManager?.IsRotationLerpEnabled()}, Debug mode: {wallManager?.IsDebugMode()}");
+            
+            EnsurePreview();
+            preview.SetActive(true);
+            preview.transform.position = pos;
+            preview.transform.localScale = scale;
+            
+            // Apply smooth rotation if wall manager supports it
+            if (wallManager != null && wallManager.IsRotationLerpEnabled() && !wallManager.IsDebugMode())
+            {
+                wallManager.ApplySmoothRotation(preview, orientation);
+            }
+            else
+            {
+                // Fallback to immediate rotation
+                Quaternion targetRotation = wallManager?.GetWallRotation(orientation) ?? Quaternion.identity;
+                preview.transform.rotation = targetRotation;
+            }
+            
+            if (previewRenderer != null)
+                previewRenderer.material.color = canPlace ? ok : bad;
+        }
+        
+        /// <summary>
         /// Creates 3 separate debug boxes: 2 wall segments + 1 intersection
         /// Uses the same scaling logic as the working single preview box
         /// </summary>

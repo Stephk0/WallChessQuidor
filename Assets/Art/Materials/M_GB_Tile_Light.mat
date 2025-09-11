@@ -129,7 +129,7 @@ Material:
     - _QueueControl: 0
     - _QueueOffset: 0
     - _ReceiveShadows: 1
-    - _ScreenVigBlendAmt: 0.819
+    - _ScreenVigBlendAmt: 0.809
     - _ScreenVigSmoothStepMax: 0.8
     - _ScreenVigSmoothStepMin: 0
     - _Smoothness: 0.5
@@ -146,15 +146,15 @@ Material:
     m_Colors:
     - _BaseColor: {r: 0.98490566, g: 0.8438869, b: 0.5036026, a: 1}
     - _Color: {r: 0.98490566, g: 0.8438869, b: 0.5036026, a: 1}
-    - _DarkCol: {r: 0.5622641, g: 0.34058982, b: 0.16867916, a: 1}
+    - _DarkCol: {r: 0.64705884, g: 0.427451, b: 0.24313727, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
-    - _GroundCol: {r: 0.4113207, g: 0.29826888, b: 0.09235309, a: 1}
-    - _LightCol: {r: 0.82641506, g: 0.58929795, b: 0.33524382, a: 1}
-    - _LightSP: {r: -0, g: 1, b: 0, a: 0}
+    - _GroundCol: {r: 0.2784314, g: 0.19607845, b: 0.121568635, a: 1}
+    - _LightCol: {r: 0.8415094, g: 0.66139126, b: 0.46203622, a: 1}
+    - _LightSP: {r: 0, g: 1, b: 0, a: 0}
     - _MainColor: {r: 0.39215687, g: 0.39215687, b: 0.39215687, a: 1}
-    - _ScreenVigDark: {r: 0.1764706, g: 0.38451546, b: 0.7372549, a: 1}
+    - _ScreenVigDark: {r: 0.5018867, g: 0.3613802, b: 0.093748614, a: 1}
     - _ScreenVigLight: {r: 1, g: 1, b: 1, a: 0}
-    - _ScreenVignetteOffset: {r: 0, g: -0.2, b: 0, a: 0}
+    - _ScreenVignetteOffset: {r: 0, g: -0.4, b: 0, a: 0}
     - _ScreenVignetteScale: {r: 1.2, g: 1.5, b: 0, a: 0}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _TexScale: {r: 0.25, g: 0.125, b: 0, a: 0}
