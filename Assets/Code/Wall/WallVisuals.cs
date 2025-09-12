@@ -70,29 +70,46 @@ namespace WallChess
             if (col) WallState.SafeDestroy(col);
         }
 
-        public void UpdatePreview(Vector3 pos, Vector3 scale, bool canPlace)
-        {
-            EnsurePreview();
-            preview.SetActive(true);
-            preview.transform.position = pos;
-            preview.transform.localScale = scale;
-            if (previewRenderer != null)
-                previewRenderer.material.color = canPlace ? ok : bad;
-        }
-
         // Enhanced preview method with rotation support
         public void UpdatePreview(Vector3 pos, Vector3 scale, Quaternion rotation, bool canPlace)
         {
             EnsurePreview();
             preview.SetActive(true);
-            preview.transform.position = pos;
-            preview.transform.rotation = rotation;
+            
+            // Use safe slide animation helper
+            ApplySafeSlideAnimation(pos);
+            
+                        preview.transform.rotation = rotation;
             preview.transform.localScale = scale;
-            if (previewRenderer != null)
-                previewRenderer.material.color = canPlace ? ok : bad;
+            
+            // Use material-based preview with fallback to colors
+            UpdatePreviewMaterial(canPlace);
+                }
+
+        public void HidePreview() 
+        { 
+            if (preview) preview.SetActive(false); 
         }
 
-        public void HidePreview() { if (preview) preview.SetActive(false); }
+        private void UpdatePreviewMaterial(bool isValid)
+        {
+            if (previewRenderer == null || wallManager == null) return;
+            
+            Material targetMaterial = isValid ? wallManager.GetValidPreviewMaterial() : wallManager.GetInvalidPreviewMaterial();
+            
+            if (targetMaterial != null)
+            {
+                previewRenderer.sharedMaterial = targetMaterial; // Use shared, not instanced
+            }
+            else
+            {
+                // Fallback to color-based preview if materials aren't assigned
+                if (previewRenderer.material != null)
+                {
+                    previewRenderer.material.color = isValid ? ok : bad;
+                }
+            }
+        }
 
         public void CleanupPreview()
         {
@@ -138,7 +155,7 @@ namespace WallChess
             return go;
         }
 
-        // Enhanced overload for new rotation-based prefab system
+        // Enhanced overload for new rotation-based prefab system with translation animation
         public GameObject CreateWall(Vector3 position, Vector3 scale, Quaternion rotation, GameObject wallPrefab = null)
         {
             if (wallManager != null && wallManager.IsDebugMode())
@@ -151,7 +168,6 @@ namespace WallChess
             GameObject prefabToUse = wallPrefab ?? prefab;
             var go = prefabToUse != null ? GameObject.Instantiate(prefabToUse) : GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = "Wall_Prefab";
-            go.transform.position = position;
             go.transform.rotation = rotation;
             go.transform.localScale = scale;
             go.tag = "Wall";
@@ -162,10 +178,53 @@ namespace WallChess
                 if (mat != null) r.material = mat;
                 else if (prefabToUse == null) r.material.color = Color.yellow; // Only set color if using primitive
             }
+            
+            // Determine orientation from rotation and apply smooth translation animation
+            GridSystem.Orientation orientation = GetOrientationFromRotation(rotation);
+            
+            // Apply smooth translation animation if enabled
+            if (wallManager != null && wallManager.IsTranslationOnPlaceLerpEnabled())
+            {
+                ApplySmoothTranslationToWall(go, position, orientation);
+            }
+            else
+            {
+                // Set position immediately if animation is disabled
+                go.transform.position = position;
+            }
+            
             spawned.Add(go);
             return go;
         }
         
+        
+        
+        /// <summary>
+        /// Determines wall orientation from rotation quaternion
+        /// </summary>
+        private GridSystem.Orientation GetOrientationFromRotation(Quaternion rotation)
+        {
+            // Get the Z component of the rotation to determine orientation
+            // Horizontal walls typically have 0° rotation, vertical walls have 90° rotation
+            Vector3 eulerAngles = rotation.eulerAngles;
+            float zRotation = eulerAngles.z;
+            
+            // Normalize to 0-360 range and check if it's closer to 0° (horizontal) or 90° (vertical)
+            if (zRotation > 180f) zRotation -= 360f; // Convert to -180 to 180 range
+            
+            // If rotation is closer to 90° or -90°, it's vertical, otherwise horizontal
+            return (Mathf.Abs(zRotation) > 45f) ? GridSystem.Orientation.Vertical : GridSystem.Orientation.Horizontal;
+        }
+        /// <summary>
+        /// Applies smooth translation to an existing wall GameObject using WallManager's lerp system
+        /// </summary>
+        public void ApplySmoothTranslationToWall(GameObject wallObject, Vector3 finalPosition, GridSystem.Orientation orientation)
+        {
+            if (wallManager != null && wallObject != null)
+            {
+                wallManager.ApplySmoothTranslationOnPlace(wallObject, finalPosition);
+            }
+        }
         /// <summary>
         /// Applies smooth rotation to an existing wall GameObject using WallManager's lerp system
         /// </summary>
@@ -176,9 +235,48 @@ namespace WallChess
                 wallManager.ApplySmoothRotation(wallObject, newOrientation);
             }
         }
+
+/// <summary>
+        /// Helper method to safely apply slide animation with better first-time handling
+        /// </summary>
+        private void ApplySafeSlideAnimation(Vector3 newPosition)
+        {
+            if (preview == null || wallManager == null) return;
+            
+            Vector3 currentPosition = preview.transform.position;
+            
+            // Check if this is the first position set (current position is approximately zero/default)
+            bool isFirstPosition = Vector3.Distance(currentPosition, Vector3.zero) < 0.1f;
+            
+            // Check if position has changed significantly
+            bool positionChanged = Vector3.Distance(currentPosition, newPosition) > 0.01f;
+            
+            if (wallManager.IsSlideTranslationLerpEnabled() && !wallManager.IsDebugMode() && positionChanged && !isFirstPosition)
+            {
+                // Use slide translation animation for smooth movement
+                Debug.Log($"Applying slide animation from {currentPosition} to {newPosition}");
+                wallManager.ApplySlideTranslation(preview, newPosition);
+            }
+            else
+            {
+                // Set position immediately for first position, or if animation is disabled
+                if (isFirstPosition)
+                {
+                    Debug.Log($"Setting initial preview position: {newPosition}");
+                }
+                preview.transform.position = newPosition;
+            }
+        }
+
         
         /// <summary>
         /// Enhanced preview method with smooth rotation transition
+        /// </summary>
+/// <summary>
+        /// Enhanced preview method with smooth rotation transition and slide animation
+        /// </summary>
+/// <summary>
+        /// Enhanced preview method with smooth rotation transition and slide animation
         /// </summary>
         public void UpdatePreviewWithSmoothRotation(Vector3 pos, Vector3 scale, GridSystem.Orientation orientation, bool canPlace)
         {
@@ -186,7 +284,10 @@ namespace WallChess
             
             EnsurePreview();
             preview.SetActive(true);
-            preview.transform.position = pos;
+            
+            // Use safe slide animation helper
+            ApplySafeSlideAnimation(pos);
+            
             preview.transform.localScale = scale;
             
             // Apply smooth rotation if wall manager supports it
@@ -201,8 +302,8 @@ namespace WallChess
                 preview.transform.rotation = targetRotation;
             }
             
-            if (previewRenderer != null)
-                previewRenderer.material.color = canPlace ? ok : bad;
+                        // Use material-based preview with fallback to colors
+            UpdatePreviewMaterial(canPlace);
         }
         
         /// <summary>
@@ -316,5 +417,9 @@ namespace WallChess
                 if (spawned[i] != null) WallState.SafeDestroy(spawned[i]);
             spawned.Clear();
         }
-    }
+    
+
+
+
+}
 }

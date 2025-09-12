@@ -15,6 +15,8 @@ namespace WallChess
     /// - O: Cycle through debug modes (Off, Pawn1Only, Pawn2Only, BothPawns)
     /// - R: Refresh visualization
     /// - M: Test smooth rotation on existing walls
+    /// - N: Test smooth translation on place (Z-axis) on existing walls
+    /// - L: Test smooth slide translation on existing walls
     /// 
     /// Visualization Colors:
     /// - Green: Valid path tiles
@@ -41,6 +43,25 @@ namespace WallChess
         [SerializeField] private bool enableRotationLerp = true;
         [Tooltip("Enable smooth rotation animation for wall prefabs")]
         
+        [Header("Translation On Place Animation")]
+        [SerializeField] private float translationOnPlaceLerpDuration = 0.25f;
+        [Tooltip("Duration in seconds for smooth translation transitions when placing walls (Z-axis animation)")]
+        [SerializeField] private AnimationCurve translationOnPlaceCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+        [Tooltip("Animation curve for translation on place interpolation")]
+        [SerializeField] private bool enableTranslationOnPlaceLerp = true;
+        [Tooltip("Enable smooth translation animation when walls are placed along Z-axis")]
+        [SerializeField] private float translationOnPlaceStartOffset = 0.5f;
+        [Tooltip("Z-axis distance offset from final position where translation on place animation starts")]
+        
+        [Header("Slide Translation Animation")]
+        [SerializeField] private float slideTranslationLerpDuration = 0.15f;
+        [Tooltip("Duration in seconds for smooth slide transitions when dragging walls along gaps")]
+        [SerializeField] private AnimationCurve slideTranslationCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+        [Tooltip("Animation curve for slide translation interpolation")]
+        [SerializeField] private bool enableSlideTranslationLerp = true;
+        [Tooltip("Enable smooth slide animation when walls are dragged along gaps")]
+        
+        
         [Header("Prefab Orientation")]
         [SerializeField] private Vector3 horizontalRotation = Vector3.zero;
         [Tooltip("Rotation applied to prefabs when placing horizontally")]
@@ -55,6 +76,10 @@ namespace WallChess
         [Tooltip("Used only when Box For Prefab Debug Mode is enabled")]
 
         [Header("Placement Visuals")]
+        [SerializeField] private Material validPreviewMaterial;
+        [Tooltip("Material used for valid wall placement preview")]
+        [SerializeField] private Material invalidPreviewMaterial;
+        [Tooltip("Material used for invalid wall placement preview")]
         [SerializeField] private Color validPreviewColor = new Color(0, 1, 0, 0.7f);
         [SerializeField] private Color invalidPreviewColor = new Color(1, 0, 0, 0.7f);
         [SerializeField] private Color placingPreviewColor = new Color(1, 1, 0, 0.5f);
@@ -82,6 +107,8 @@ namespace WallChess
         private GridPathfindingVisualizer pathfindingVisualizer;
         private List<GameObject> managedWalls = new List<GameObject>();
         private Dictionary<GameObject, Coroutine> rotationCoroutines = new Dictionary<GameObject, Coroutine>();
+                private Dictionary<GameObject, Coroutine> translationOnPlaceCoroutines = new Dictionary<GameObject, Coroutine>();
+        private Dictionary<GameObject, Coroutine> slideTranslationCoroutines = new Dictionary<GameObject, Coroutine>();
 
         public void Initialize(WallChessGameManager gm)
         {
@@ -104,7 +131,7 @@ namespace WallChess
             ValidatePrefabSetup();
 
             validator = new WallValidator(gridSystem, gameManager);
-            visuals = new WallVisuals(GetActivePrefab(), GetActiveMaterial(), validPreviewColor, invalidPreviewColor, placingPreviewColor);
+                        visuals = new WallVisuals(GetActivePrefab(), GetActiveMaterial(), validPreviewColor, invalidPreviewColor, placingPreviewColor);
             visuals.SetWallManager(this);
             placement = new WallPlacementController(this, gameManager, gridSystem, validator, visuals, placementPlaneZ);
             
@@ -304,6 +331,173 @@ namespace WallChess
         }
         
         /// <summary>
+        /// Applies smooth translation to a wall GameObject with lerping from offset position to final position
+        /// </summary>
+/// <summary>
+        /// Applies smooth translation on place animation along Z-axis from offset to final position
+        /// </summary>
+        public void ApplySmoothTranslationOnPlace(GameObject wallObject, Vector3 finalPosition)
+        {
+            Debug.Log($"ApplySmoothTranslationOnPlace called for {wallObject?.name} to {finalPosition}. Lerp enabled: {enableTranslationOnPlaceLerp}, Debug mode: {boxForPrefabDebugMode}");
+            
+            if (wallObject == null || !enableTranslationOnPlaceLerp || boxForPrefabDebugMode)
+            {
+                if (wallObject != null)
+                    wallObject.transform.position = finalPosition;
+                return;
+            }
+            
+            // Stop any existing translation on place animation for this wall
+            if (translationOnPlaceCoroutines.ContainsKey(wallObject))
+            {
+                if (translationOnPlaceCoroutines[wallObject] != null)
+                    StopCoroutine(translationOnPlaceCoroutines[wallObject]);
+                translationOnPlaceCoroutines.Remove(wallObject);
+            }
+            
+            Coroutine translationCoroutine = StartCoroutine(LerpWallTranslationOnPlace(wallObject, finalPosition));
+            translationOnPlaceCoroutines[wallObject] = translationCoroutine;
+        }
+        
+        /// <summary>
+        /// Coroutine for smoothly translating a wall from offset position to its final position
+        /// </summary>
+/// <summary>
+        /// Coroutine for smoothly translating a wall along Z-axis from offset position to its final position
+        /// </summary>
+        private System.Collections.IEnumerator LerpWallTranslationOnPlace(GameObject wallObject, Vector3 finalPosition)
+        {
+            if (wallObject == null) yield break;
+            
+            // Calculate start position with Z-axis offset (animate from behind/above)
+            Vector3 startPosition = finalPosition + (Vector3.forward * translationOnPlaceStartOffset);
+            
+            // Set initial position
+            wallObject.transform.position = startPosition;
+            
+            Debug.Log($"LerpWallTranslationOnPlace started for {wallObject?.name} from {startPosition} to {finalPosition} (Z-axis animation)");
+            
+            // Check if we're already close enough to skip animation
+            if (Vector3.Distance(startPosition, finalPosition) < 0.01f)
+            {
+                translationOnPlaceCoroutines.Remove(wallObject);
+                yield break;
+            }
+            
+            float elapsed = 0f;
+            
+            while (elapsed < translationOnPlaceLerpDuration)
+            {
+                if (wallObject == null)
+                {
+                    translationOnPlaceCoroutines.Remove(wallObject);
+                    yield break;
+                }
+                
+                elapsed += Time.deltaTime;
+                float t = elapsed / translationOnPlaceLerpDuration;
+                float curveValue = translationOnPlaceCurve.Evaluate(t);
+                
+                wallObject.transform.position = Vector3.Lerp(startPosition, finalPosition, curveValue);
+                
+                yield return null;
+            }
+            
+            // Ensure final position is exact
+            if (wallObject != null)
+            {
+                wallObject.transform.position = finalPosition;
+            }
+            
+            translationOnPlaceCoroutines.Remove(wallObject);
+        }
+
+/// <summary>
+        /// Applies smooth slide translation animation when dragging walls along gaps
+        /// </summary>
+        public void ApplySlideTranslation(GameObject wallObject, Vector3 targetPosition)
+        {
+            Debug.Log($"ApplySlideTranslation called for {wallObject?.name} to {targetPosition}. Lerp enabled: {enableSlideTranslationLerp}, Debug mode: {boxForPrefabDebugMode}");
+            
+            if (wallObject == null || !enableSlideTranslationLerp || boxForPrefabDebugMode)
+            {
+                if (wallObject != null)
+                    wallObject.transform.position = targetPosition;
+                return;
+            }
+            
+            // Stop any existing slide animation for this wall
+            if (slideTranslationCoroutines.ContainsKey(wallObject))
+            {
+                if (slideTranslationCoroutines[wallObject] != null)
+                    StopCoroutine(slideTranslationCoroutines[wallObject]);
+                slideTranslationCoroutines.Remove(wallObject);
+            }
+            
+            Coroutine slideCoroutine = StartCoroutine(LerpWallSlideTranslation(wallObject, targetPosition));
+            slideTranslationCoroutines[wallObject] = slideCoroutine;
+        }
+        
+        /// <summary>
+        /// Coroutine for smoothly sliding a wall to a new position along gaps
+        /// </summary>
+        private System.Collections.IEnumerator LerpWallSlideTranslation(GameObject wallObject, Vector3 targetPosition)
+        {
+            if (wallObject == null) yield break;
+            
+            Vector3 startPosition = wallObject.transform.position;
+            
+            Debug.Log($"LerpWallSlideTranslation started for {wallObject?.name} from {startPosition} to {targetPosition}");
+            
+            // Check if we're already close enough to skip animation
+            if (Vector3.Distance(startPosition, targetPosition) < 0.01f)
+            {
+                slideTranslationCoroutines.Remove(wallObject);
+                yield break;
+            }
+            
+            float elapsed = 0f;
+            
+            while (elapsed < slideTranslationLerpDuration)
+            {
+                if (wallObject == null)
+                {
+                    slideTranslationCoroutines.Remove(wallObject);
+                    yield break;
+                }
+                
+                elapsed += Time.deltaTime;
+                float t = elapsed / slideTranslationLerpDuration;
+                float curveValue = slideTranslationCurve.Evaluate(t);
+                
+                wallObject.transform.position = Vector3.Lerp(startPosition, targetPosition, curveValue);
+                
+                yield return null;
+            }
+            
+            // Ensure final position is exact
+            if (wallObject != null)
+            {
+                wallObject.transform.position = targetPosition;
+            }
+            
+            slideTranslationCoroutines.Remove(wallObject);
+        }
+
+        
+        /// <summary>
+        /// Gets the direction vector for translation offset based on wall orientation
+        /// </summary>
+/// <summary>
+        /// Gets the direction vector for translation on place offset (always Z-axis forward)
+        /// </summary>
+        private Vector3 GetTranslationOnPlaceOffsetDirection()
+        {
+            // Translation on place always animates along Z-axis from forward to final position
+            return Vector3.forward;
+        }
+        
+        /// <summary>
         /// Stops all rotation animations and cleans up coroutines
         /// </summary>
         public void StopAllRotationAnimations()
@@ -314,6 +508,57 @@ namespace WallChess
                     StopCoroutine(kvp.Value);
             }
             rotationCoroutines.Clear();
+        }
+        
+        /// <summary>
+        /// Stops all translation animations and cleans up coroutines
+        /// </summary>
+/// <summary>
+        /// Stops all translation animations (both on place and slide) and cleans up coroutines
+        /// </summary>
+        public void StopAllTranslationAnimations()
+        {
+            StopAllTranslationOnPlaceAnimations();
+            StopAllSlideTranslationAnimations();
+        }
+        
+        /// <summary>
+        /// Stops all translation on place animations and cleans up coroutines
+        /// </summary>
+        public void StopAllTranslationOnPlaceAnimations()
+        {
+            foreach (var kvp in translationOnPlaceCoroutines)
+            {
+                if (kvp.Value != null)
+                    StopCoroutine(kvp.Value);
+            }
+            translationOnPlaceCoroutines.Clear();
+        }
+        
+        /// <summary>
+        /// Stops all slide translation animations and cleans up coroutines
+        /// </summary>
+        public void StopAllSlideTranslationAnimations()
+        {
+            foreach (var kvp in slideTranslationCoroutines)
+            {
+                if (kvp.Value != null)
+                    StopCoroutine(kvp.Value);
+            }
+            slideTranslationCoroutines.Clear();
+        }
+        
+        /// <summary>
+        /// Stops all wall animations (rotation and translation) and cleans up coroutines
+        /// </summary>
+/// <summary>
+        /// Stops all wall animations (rotation, translation on place, and slide translation) and cleans up coroutines
+        /// </summary>
+        public void StopAllWallAnimations()
+        {
+            StopAllRotationAnimations();
+            StopAllTranslationOnPlaceAnimations();
+            StopAllSlideTranslationAnimations();
         }
 
         public Vector3 GetWallScale(GridSystem.Orientation orientation)
@@ -350,6 +595,8 @@ namespace WallChess
             if (Input.GetKeyDown(KeyCode.O)) CyclePathfindingDebugMode();
             if (Input.GetKeyDown(KeyCode.R)) RefreshPathfindingVisualization();
             if (Input.GetKeyDown(KeyCode.M)) TestSmoothRotation();
+            if (Input.GetKeyDown(KeyCode.N)) TestSmoothTranslation();
+            if (Input.GetKeyDown(KeyCode.L)) TestSlideTranslation();
 
             placement.Tick();
         }
@@ -414,6 +661,103 @@ namespace WallChess
             }
         }
         
+        /// <summary>
+        /// Test method to manually trigger smooth translation on a wall (for debugging)
+        /// Press 'N' key to test translation
+        /// </summary>
+/// <summary>
+        /// Test method to manually trigger smooth translation on place (for debugging)
+        /// Press 'N' key to test translation on place
+        /// </summary>
+        private void TestSmoothTranslation()
+        {
+            Debug.Log("=== TESTING SMOOTH TRANSLATION ON PLACE ===");
+            
+            // Find any existing wall in the scene to test translation
+            if (managedWalls != null && managedWalls.Count > 0)
+            {
+                GameObject testWall = managedWalls[0];
+                if (testWall != null)
+                {
+                    Debug.Log($"Testing smooth translation on place on wall: {testWall.name}");
+                    Debug.Log($"Translation settings - Duration: {translationOnPlaceLerpDuration}s, Enabled: {enableTranslationOnPlaceLerp}, Debug Mode: {boxForPrefabDebugMode}");
+                    
+                    // Get current position and create a test final position
+                    Vector3 currentPosition = testWall.transform.position;
+                    
+                    Debug.Log($"Current position: {currentPosition}, Z-axis offset: {translationOnPlaceStartOffset}");
+                    
+                    // Test the smooth translation on place - this will animate from Z-axis offset to current position
+                    ApplySmoothTranslationOnPlace(testWall, currentPosition);
+                    
+                    Debug.Log($"Smooth translation on place applied with Z-axis offset: {translationOnPlaceStartOffset}");
+                }
+                else
+                {
+                    Debug.LogWarning("TestSmoothTranslation: Found wall reference but GameObject is null");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("TestSmoothTranslation: No walls found to test translation on. Place a wall first.");
+            }
+        }
+
+/// <summary>
+        /// Test method to manually trigger smooth slide translation (for debugging)
+        /// Press 'L' key to test slide translation
+        /// </summary>
+        private void TestSlideTranslation()
+        {
+            Debug.Log("=== TESTING SLIDE TRANSLATION ===");
+            
+            // Find any existing wall in the scene to test slide translation
+            if (managedWalls != null && managedWalls.Count > 0)
+            {
+                GameObject testWall = managedWalls[0];
+                if (testWall != null)
+                {
+                    Debug.Log($"Testing slide translation on wall: {testWall.name}");
+                    Debug.Log($"Slide settings - Duration: {slideTranslationLerpDuration}s, Enabled: {enableSlideTranslationLerp}, Debug Mode: {boxForPrefabDebugMode}");
+                    
+                    // Get current position and create a test target position (slide to the right)
+                    Vector3 currentPosition = testWall.transform.position;
+                    Vector3 targetPosition = currentPosition + Vector3.right * 0.5f; // Slide 0.5 units to the right
+                    
+                    Debug.Log($"Current position: {currentPosition}, Target position: {targetPosition}");
+                    
+                    // Test the smooth slide translation
+                    ApplySlideTranslation(testWall, targetPosition);
+                    
+                    Debug.Log($"Slide translation applied from {currentPosition} to {targetPosition}");
+                }
+                else
+                {
+                    Debug.LogWarning("TestSlideTranslation: Found wall reference but GameObject is null");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("TestSlideTranslation: No walls found to test slide translation on. Place a wall first.");
+            }
+        }
+
+        
+        /// <summary>
+        /// Helper method to determine orientation from a wall's rotation
+        /// </summary>
+        private GridSystem.Orientation GetOrientationFromWallRotation(Quaternion rotation)
+        {
+            Vector3 eulerAngles = rotation.eulerAngles;
+            float zRotation = eulerAngles.z;
+            
+            // Normalize to 0-360 range and check if it's closer to 0° (horizontal) or 90° (vertical)
+            if (zRotation > 180f) zRotation -= 360f; // Convert to -180 to 180 range
+            
+            // If rotation is closer to 90° or -90°, it's vertical, otherwise horizontal
+            return (Mathf.Abs(zRotation) > 45f) ? GridSystem.Orientation.Vertical : GridSystem.Orientation.Horizontal;
+        }
+        
         private Vector3 GetMouseWorld()
         {
             var cam = Camera.main;
@@ -459,7 +803,7 @@ namespace WallChess
         void OnDestroy()
         {
             visuals.CleanupPreview();
-            StopAllRotationAnimations();
+            StopAllWallAnimations();
             ClearAllWalls();
             
             if (pathfindingVisualizer != null)
@@ -661,7 +1005,23 @@ namespace WallChess
         public AnimationCurve GetRotationCurve() => rotationCurve;
         public bool IsRotationLerpEnabled() => enableRotationLerp;
 
+        // Public accessors for translation animation settings
+        // Public accessors for translation on place animation settings
+        public float GetTranslationOnPlaceLerpDuration() => translationOnPlaceLerpDuration;
+        public AnimationCurve GetTranslationOnPlaceCurve() => translationOnPlaceCurve;
+        public bool IsTranslationOnPlaceLerpEnabled() => enableTranslationOnPlaceLerp;
+        public float GetTranslationOnPlaceStartOffset() => translationOnPlaceStartOffset;
+        
+        // Public accessors for slide translation animation settings
+        public float GetSlideTranslationLerpDuration() => slideTranslationLerpDuration;
+        public AnimationCurve GetSlideTranslationCurve() => slideTranslationCurve;
+        public bool IsSlideTranslationLerpEnabled() => enableSlideTranslationLerp;
+
         public bool IsDebugMode() => boxForPrefabDebugMode;
+        
+        // Public accessors for preview materials
+        public Material GetValidPreviewMaterial() => validPreviewMaterial;
+        public Material GetInvalidPreviewMaterial() => invalidPreviewMaterial;
         public Vector3 GetRotationAxis() => rotationAxis;
         public Vector3 GetHorizontalRotation() => horizontalRotation;
         public Vector3 GetVerticalRotation() => verticalRotation;

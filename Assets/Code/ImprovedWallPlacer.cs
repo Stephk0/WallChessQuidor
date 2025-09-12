@@ -43,6 +43,13 @@ public class ImprovedWallPlacer : MonoBehaviour
     // (7) Track spawned walls instead of scene-wide tag scans
     private readonly List<GameObject> placedWalls = new List<GameObject>(32);
 
+    // Animation state
+    private Vector3 targetPreviewPosition;
+    private Vector3 currentPreviewPosition;
+    private bool isAnimatingPreview = false;
+    private Coroutine slideAnimationCoroutine;
+    private Coroutine translationOnPlaceCoroutine;
+
     // Efficient gap tracking with boolean arrays (pair-aware indices)
     // horizontalGaps: [x, y] with size [HCols, HRows] == [Cells+1, Cells]
     // verticalGaps:   [x, y] with size [VCols, VRows] == [Cells, Cells+1]
@@ -75,6 +82,16 @@ public class ImprovedWallPlacer : MonoBehaviour
     public float horizontalGapOffsetY = 0.0f;   // FIXED: horizontal gaps are between rows
     public float verticalGapOffsetX = 0.0f;     // FIXED: vertical gaps are between columns
     public float verticalGapOffsetY = 0.5f;
+
+    [Header("Animation Settings")]
+    [Tooltip("Speed of wall sliding animation while dragging")]
+    public float slideAnimationSpeed = 8f;
+    
+    [Tooltip("Duration of translation animation when wall is placed")]
+    public float translationOnPlaceDuration = 0.3f;
+    
+    [Tooltip("Z-axis offset for translation on place animation")]
+    public float translationZOffset = 0.5f;
 
     [Header("Input & Camera")]
     public LayerMask placementMask = ~0;        // optional; used by plane Raycast fallback
@@ -133,19 +150,31 @@ public class ImprovedWallPlacer : MonoBehaviour
         if (wallPreview == null) return;
 
         Vector3 mousePos = GetMouseWorld();
-        if (!IsWithinGridBounds(mousePos)) { wallPreview.SetActive(false); return; }
+        if (!IsWithinGridBounds(mousePos)) { 
+            wallPreview.SetActive(false); 
+            StopSlideAnimation();
+            return; 
+        }
 
         // (2) Index-first candidate computation — no distance scans
         bool hasCandidate = TryFindNearestGap(mousePos, out WallInfo info);
         if (!hasCandidate)
         {
             wallPreview.SetActive(false);
+            StopSlideAnimation();
             return;
         }
 
         wallPreview.SetActive(true);
-        wallPreview.transform.position = info.position;
+        
+        // Start or update slide animation
+        targetPreviewPosition = info.position;
         wallPreview.transform.localScale = info.scale;
+        
+        if (!isAnimatingPreview || Vector3.Distance(targetPreviewPosition, currentPreviewPosition) > 0.1f)
+        {
+            StartSlideAnimation();
+        }
 
         // tint based on validity
         bool canPlace = CanPlaceWall(info);
@@ -160,6 +189,9 @@ public class ImprovedWallPlacer : MonoBehaviour
             Vector3 mousePos = GetMouseWorld();
             if (TryFindNearestGap(mousePos, out WallInfo info) && CanPlaceWall(info))
             {
+                // Stop any ongoing animations
+                StopSlideAnimation();
+                
                 wallPreviewRenderer.material.color = Color.yellow;
                 wallPreview.name = "Wall";
                 wallPreview.tag = "Wall";
@@ -173,11 +205,15 @@ public class ImprovedWallPlacer : MonoBehaviour
                 wallsLeft--;
                 UnityEngine.Debug.Log($"Wall placed at ({info.x},{info.y}) {info.orientation}! Remaining: {wallsLeft}");
 
+                // Start translation on place animation
+                StartTranslationOnPlace(wallPreview);
+
                 wallPreview = null;
                 wallPreviewRenderer = null;
             }
             else
             {
+                StopSlideAnimation();
                 SafeDestroy(wallPreview);
                 wallPreview = null;
                 wallPreviewRenderer = null;
@@ -185,6 +221,7 @@ public class ImprovedWallPlacer : MonoBehaviour
         }
         else if (wallPreview != null)
         {
+            StopSlideAnimation();
             SafeDestroy(wallPreview);
             wallPreview = null;
             wallPreviewRenderer = null;
@@ -192,6 +229,107 @@ public class ImprovedWallPlacer : MonoBehaviour
         orientationLock = null; // reset after a placement attempt finishes
 
         isPlacing = false;
+    }
+    #endregion
+
+    #region Animation Methods
+    
+    private void StartSlideAnimation()
+    {
+        if (slideAnimationCoroutine != null)
+        {
+            StopCoroutine(slideAnimationCoroutine);
+        }
+        
+        isAnimatingPreview = true;
+        currentPreviewPosition = wallPreview.transform.position;
+        slideAnimationCoroutine = StartCoroutine(SlideAnimationCoroutine());
+    }
+    
+    private void StopSlideAnimation()
+    {
+        if (slideAnimationCoroutine != null)
+        {
+            StopCoroutine(slideAnimationCoroutine);
+            slideAnimationCoroutine = null;
+        }
+        isAnimatingPreview = false;
+    }
+    
+    private System.Collections.IEnumerator SlideAnimationCoroutine()
+    {
+        while (isAnimatingPreview && Vector3.Distance(currentPreviewPosition, targetPreviewPosition) > 0.01f)
+        {
+            currentPreviewPosition = Vector3.Lerp(currentPreviewPosition, targetPreviewPosition, slideAnimationSpeed * Time.deltaTime);
+            if (wallPreview != null)
+            {
+                wallPreview.transform.position = currentPreviewPosition;
+            }
+            yield return null;
+        }
+        
+        if (wallPreview != null)
+        {
+            wallPreview.transform.position = targetPreviewPosition;
+        }
+        currentPreviewPosition = targetPreviewPosition;
+        isAnimatingPreview = false;
+    }
+    
+    private void StartTranslationOnPlace(GameObject wall)
+    {
+        if (translationOnPlaceCoroutine != null)
+        {
+            StopCoroutine(translationOnPlaceCoroutine);
+        }
+        
+        translationOnPlaceCoroutine = StartCoroutine(TranslationOnPlaceCoroutine(wall));
+    }
+    
+    private System.Collections.IEnumerator TranslationOnPlaceCoroutine(GameObject wall)
+    {
+        if (wall == null) yield break;
+        
+        Vector3 startPosition = wall.transform.position;
+        Vector3 targetPosition = startPosition + Vector3.forward * translationZOffset;
+        Vector3 finalPosition = startPosition;
+        
+        float elapsedTime = 0f;
+        
+        // Move forward along Z-axis
+        while (elapsedTime < translationOnPlaceDuration * 0.5f)
+        {
+            if (wall == null) yield break;
+            
+            elapsedTime += Time.deltaTime;
+            float progress = elapsedTime / (translationOnPlaceDuration * 0.5f);
+            progress = Mathf.SmoothStep(0f, 1f, progress);
+            
+            wall.transform.position = Vector3.Lerp(startPosition, targetPosition, progress);
+            yield return null;
+        }
+        
+        elapsedTime = 0f;
+        
+        // Move back to final position
+        while (elapsedTime < translationOnPlaceDuration * 0.5f)
+        {
+            if (wall == null) yield break;
+            
+            elapsedTime += Time.deltaTime;
+            float progress = elapsedTime / (translationOnPlaceDuration * 0.5f);
+            progress = Mathf.SmoothStep(0f, 1f, progress);
+            
+            wall.transform.position = Vector3.Lerp(targetPosition, finalPosition, progress);
+            yield return null;
+        }
+        
+        if (wall != null)
+        {
+            wall.transform.position = finalPosition;
+        }
+        
+        translationOnPlaceCoroutine = null;
     }
     #endregion
 
@@ -229,7 +367,7 @@ public class ImprovedWallPlacer : MonoBehaviour
         bool inHStripe = dY <= laneSnapMargin;
         bool inVStripe = dX <= laneSnapMargin;
 
-        // Hysteresis: if we’re locked to an orientation, keep it until we leave a wider stripe
+        // Hysteresis: if we're locked to an orientation, keep it until we leave a wider stripe
         if (orientationLock.HasValue)
         {
             if (orientationLock.Value == Orientation.Horizontal)
@@ -253,7 +391,7 @@ public class ImprovedWallPlacer : MonoBehaviour
         {
             // If neither stripe is hit, allow both so we can still find a nearest center anywhere on the board.
             if (!inHStripe && !inVStripe) { inHStripe = true; inVStripe = true; }
-            // If both stripes are hit (cross area), we’ll resolve by distance below and then lock.
+            // If both stripes are hit (cross area), we'll resolve by distance below and then lock.
         }
 
         // ----- ORIGINAL candidate math (unchanged) -----
@@ -297,7 +435,7 @@ public class ImprovedWallPlacer : MonoBehaviour
                 orientationLock = Orientation.Horizontal;
             else if (result.orientation == Orientation.Vertical && dX <= laneSnapMargin)
                 orientationLock = Orientation.Vertical;
-            // If we selected while outside both narrow stripes (far away), don’t lock.
+            // If we selected while outside both narrow stripes (far away), don't lock.
         }
 
         return found;
@@ -315,7 +453,7 @@ public class ImprovedWallPlacer : MonoBehaviour
         // Apply margin: if within margin of current best, prefer to KEEP same orientation
         if (found && Mathf.Abs(d2 - bestDistSq) < gapSnapMargin * gapSnapMargin)
         {
-            // Don’t switch orientation if both candidates are nearly tied
+            // Don't switch orientation if both candidates are nearly tied
             if (best.orientation == Orientation.Vertical && o == Orientation.Horizontal)
                 return; // keep vertical
         }
@@ -483,6 +621,14 @@ public class ImprovedWallPlacer : MonoBehaviour
     #region Public API & utilities
     public void ClearWalls()
     {
+        // Stop any ongoing animations
+        StopSlideAnimation();
+        if (translationOnPlaceCoroutine != null)
+        {
+            StopCoroutine(translationOnPlaceCoroutine);
+            translationOnPlaceCoroutine = null;
+        }
+
         // Clear arrays
         for (int i = 0; i < HCols; i++)
             for (int j = 0; j < HRows; j++)

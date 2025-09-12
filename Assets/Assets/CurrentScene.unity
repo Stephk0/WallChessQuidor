@@ -574,7 +574,7 @@ Transform:
   m_GameObject: {fileID: 519420028}
   serializedVersion: 2
   m_LocalRotation: {x: -0.17321838, y: 0, z: 0, w: 0.9848835}
-  m_LocalPosition: {x: 0, y: -10.2, z: -32.87}
+  m_LocalPosition: {x: 0, y: -9.1, z: -32.87}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -681,7 +681,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   opponentIsAI: 1
   difficulty: 4
-  thinkDelaySeconds: 0.5
+  thinkDelaySeconds: 0.736
   logDecisions: 0
   playerCtrl: {fileID: 571342508}
   wallMgr: {fileID: 571342507}
@@ -742,18 +742,108 @@ MonoBehaviour:
   wallPrefabs:
   - {fileID: 8266061122573233512, guid: 7702ac3ab2f1be34cae70df0d6b845d0, type: 3}
   - {fileID: 8266061122573233512, guid: 7702ac3ab2f1be34cae70df0d6b845d0, type: 3}
+  rotationLerpDuration: 0.025
+  rotationCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  enableRotationLerp: 1
+  translationOnPlaceLerpDuration: 0.25
+  translationOnPlaceCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  enableTranslationOnPlaceLerp: 1
+  translationOnPlaceStartOffset: 0.5
+  slideTranslationLerpDuration: 0.05
+  slideTranslationCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 0.5245659
+      value: 1.1838932
+      inSlope: 1.4166381
+      outSlope: 1.4166381
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  enableSlideTranslationLerp: 1
   horizontalRotation: {x: 0, y: 0, z: 0}
   verticalRotation: {x: 0, y: 0, z: 90}
   rotationAxis: {x: 0, y: 0, z: 1}
   wallMaterial: {fileID: 2100000, guid: 5de807a6814a7f2459cfd7c7834cf7e9, type: 2}
   wallPrefab: {fileID: 0}
+  validPreviewMaterial: {fileID: 2100000, guid: c9ccc67042a35f0458eba655649bc57a, type: 2}
+  invalidPreviewMaterial: {fileID: 2100000, guid: 52af480e940359e44ab8c6808b91f4d1, type: 2}
   validPreviewColor: {r: 0, g: 1, b: 0, a: 0.7}
   invalidPreviewColor: {r: 1, g: 0, b: 0, a: 0.7}
   placingPreviewColor: {r: 0.9450981, g: 0.7411765, b: 0.34509805, a: 1}
   placementPlaneZ: 0
   gapSnapMargin: 0.25
   laneSnapMargin: 0.3
-  unlockMultiplier: 1.5
+  unlockMultiplier: 1
   enablePathfindingVisualization: 0
   pathfindingDebugMode: 2
   updateVisualizationOnWallPlacement: 0
@@ -2600,7 +2690,7 @@ Transform:
   m_GameObject: {fileID: 1456289593}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 3.182379, y: 7.4259677, z: -0.32701525}
+  m_LocalPosition: {x: 4, y: 10, z: -0.32701525}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -13743,7 +13833,7 @@ Transform:
   m_GameObject: {fileID: 2193108584062168786}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -3.1576211, y: 7.4259677, z: -0.32701525}
+  m_LocalPosition: {x: -4.1, y: 10, z: -0.32701525}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
