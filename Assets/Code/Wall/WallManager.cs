@@ -66,6 +66,14 @@ namespace WallChess
         [Tooltip("Which pawns to show pathfinding visualization for")]
         [SerializeField] private bool updateVisualizationOnWallPlacement = true;
         [Tooltip("Automatically update pathfinding visualization when walls are placed")]
+        
+        [Header("Visual Animations")]
+        [SerializeField] private bool enableWallAnimations = true;
+        [Tooltip("Enable smooth wall animations for rotation, placement, and sliding")]
+        [SerializeField] private GameObject validPreviewMaterialPrefab;
+        [Tooltip("Optional: Prefab with valid preview material")]
+        [SerializeField] private GameObject invalidPreviewMaterialPrefab;
+        [Tooltip("Optional: Prefab with invalid preview material")]
 
         private WallChessGameManager gameManager;
         private GridSystem gridSystem;
@@ -74,6 +82,7 @@ namespace WallChess
         private WallVisuals visuals;
         private WallPlacementController placement;
         private GridPathfindingVisualizer pathfindingVisualizer;
+        private WallAnimationHandler animationHandler;
         private List<GameObject> managedWalls = new List<GameObject>();
 
         public void Initialize(WallChessGameManager gm)
@@ -107,8 +116,11 @@ namespace WallChess
             
             // Initialize pathfinding visualizer
             InitializePathfindingVisualizer();
+            
+            // Initialize animation handler if enabled
+            InitializeAnimationHandler();
 
-            Debug.Log($"WallManager initialized with on-demand pathfinding validation. Debug mode: {boxForPrefabDebugMode}, Pathfinding visualization: {enablePathfindingVisualization}");
+            Debug.Log($"WallManager initialized with on-demand pathfinding validation. Debug mode: {boxForPrefabDebugMode}, Pathfinding visualization: {enablePathfindingVisualization}, Animations: {enableWallAnimations}");
         }
 
         /// <summary>
@@ -189,6 +201,26 @@ namespace WallChess
             pathfindingVisualizer.SetDebugMode(pathfindingDebugMode);
             
             Debug.Log($"PathfindingVisualizer initialized with mode: {pathfindingDebugMode}");
+        }
+        
+        /// <summary>
+        /// Initialize the animation handler if enabled
+        /// </summary>
+        private void InitializeAnimationHandler()
+        {
+            if (!enableWallAnimations) return;
+            
+            // Check if animation handler already exists as component
+            animationHandler = GetComponent<WallAnimationHandler>();
+            
+            if (animationHandler == null)
+            {
+                // Add animation handler component
+                animationHandler = gameObject.AddComponent<WallAnimationHandler>();
+            }
+            
+            animationHandler.Initialize(this);
+            Debug.Log("WallAnimationHandler initialized");
         }
 
         /// <summary>
@@ -391,6 +423,12 @@ namespace WallChess
                     DestroyImmediate(pathfindingVisualizer.gameObject);
                 }
                 pathfindingVisualizer = null;
+            }
+            
+            // Clean up animation handler
+            if (animationHandler != null)
+            {
+                animationHandler.StopAllAnimations();
             }
         }
 
@@ -629,6 +667,83 @@ namespace WallChess
         public Vector3 GetRotationAxis() => rotationAxis;
         public Vector3 GetHorizontalRotation() => horizontalRotation;
         public Vector3 GetVerticalRotation() => verticalRotation;
+        
+        // Animation system accessors (temporary - for backwards compatibility)
+        public float GetRotationLerpDuration() 
+        {
+            if (animationHandler != null)
+                return animationHandler.GetRotationLerpDuration();
+            return 0.3f;
+        }
+        
+        public bool IsRotationLerpEnabled() 
+        {
+            if (animationHandler != null)
+                return animationHandler.IsRotationLerpEnabled();
+            return false;
+        }
+        
+        // Animation handler integration methods
+        public void ApplySmoothRotation(GameObject wallObject, GridSystem.Orientation orientation)
+        {
+            if (animationHandler != null && animationHandler.IsRotationLerpEnabled())
+            {
+                animationHandler.ApplySmoothRotation(wallObject, orientation);
+            }
+            else
+            {
+                wallObject.transform.rotation = GetWallRotation(orientation);
+            }
+        }
+        
+        public void ApplySmoothTranslationOnPlace(GameObject wallObject, Vector3 targetPosition)
+        {
+            if (animationHandler != null && animationHandler.IsTranslationOnPlaceEnabled())
+            {
+                animationHandler.ApplySmoothTranslationOnPlace(wallObject, targetPosition);
+            }
+            else
+            {
+                wallObject.transform.position = targetPosition;
+            }
+        }
+        
+        public void ApplySlideTranslation(GameObject wallObject, Vector3 targetPosition)
+        {
+            if (animationHandler != null && animationHandler.IsSlideTranslationEnabled())
+            {
+                animationHandler.ApplySlideTranslation(wallObject, targetPosition);
+            }
+            else
+            {
+                wallObject.transform.position = targetPosition;
+            }
+        }
+        
+        // Animation configuration checks (additional methods)
+        public bool IsTranslationOnPlaceLerpEnabled() => animationHandler != null && animationHandler.IsTranslationOnPlaceEnabled();
+        public bool IsSlideTranslationLerpEnabled() => animationHandler != null && animationHandler.IsSlideTranslationEnabled();
+        
+        // Preview material accessors for WallVisuals
+        public Material GetValidPreviewMaterial()
+        {
+            if (validPreviewMaterialPrefab != null)
+            {
+                var renderer = validPreviewMaterialPrefab.GetComponent<Renderer>();
+                return renderer != null ? renderer.sharedMaterial : null;
+            }
+            return null;
+        }
+        
+        public Material GetInvalidPreviewMaterial()
+        {
+            if (invalidPreviewMaterialPrefab != null)
+            {
+                var renderer = invalidPreviewMaterialPrefab.GetComponent<Renderer>();
+                return renderer != null ? renderer.sharedMaterial : null;
+            }
+            return null;
+        }
         
         // Legacy compatibility methods for AIOpponent
         [System.Obsolete("Use GetGridSystem().CanPlaceWall() instead")]

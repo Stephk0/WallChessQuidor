@@ -156,7 +156,7 @@ public override void OnEnter()
                 return Vector3.zero;
             }
             
-            var ray = cam.ScreenPointToRay(Input.mousePosition);
+            var ray = cam.ScreenPointToRay(UnityEngine.Input.mousePosition);
             var plane = new Plane(Vector3.forward, new Vector3(0, 0, 0)); // Placement plane at Z=0
             
             if (plane.Raycast(ray, out float enter))
@@ -166,7 +166,7 @@ public override void OnEnter()
             else
             {
                 // Fallback method
-                return cam.ScreenToWorldPoint(new Vector3(Input.mousePosition.x, Input.mousePosition.y, Mathf.Abs(cam.transform.position.z)));
+                return cam.ScreenToWorldPoint(new Vector3(UnityEngine.Input.mousePosition.x, UnityEngine.Input.mousePosition.y, Mathf.Abs(cam.transform.position.z)));
             }
         }
 }
