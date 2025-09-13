@@ -99,6 +99,34 @@ namespace WallChess
             if (preview) WallState.SafeDestroy(preview);
             preview = null; previewRenderer = null;
         }
+        
+        public void ShowInvalidPlacementFeedback(Vector3 position)
+        {
+            // Create a temporary red flash at the invalid position
+            GameObject feedbackObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            feedbackObj.name = "InvalidPlacementFeedback";
+            feedbackObj.transform.position = position;
+            feedbackObj.transform.localScale = Vector3.one * 0.5f;
+            
+            // Make it red and semi-transparent
+            Renderer renderer = feedbackObj.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                Material tempMat = new Material(renderer.material);
+                tempMat.color = new Color(1f, 0f, 0f, 0.5f);
+                renderer.material = tempMat;
+            }
+            
+            // Remove collider so it doesn't interfere
+            Collider collider = feedbackObj.GetComponent<Collider>();
+            if (collider != null)
+            {
+                GameObject.Destroy(collider);
+            }
+            
+            // Auto-destroy after a short time
+            GameObject.Destroy(feedbackObj, 0.5f);
+        }
 
         public GameObject CreateWall(GapDetector.WallInfo w, WallState state)
         {

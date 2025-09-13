@@ -102,7 +102,16 @@ namespace WallChess
                 return true;
             }
             
-            Debug.LogWarning($"TryPlaceWall: Invalid placement at world position {worldPosition}");
+            // For AI attempts, use debug log instead of warning since this is expected behavior
+            if (IsAIPlacement())
+            {
+                Debug.Log($"[AI] Wall placement attempt failed at world position {worldPosition}");
+            }
+            else
+            {
+                // Keep warning for user attempts as it's useful feedback
+                Debug.LogWarning($"TryPlaceWall: Invalid placement at world position {worldPosition}");
+            }
             // Handle failed placement
             HandleFailedPlacement();
             return false;
@@ -146,7 +155,11 @@ namespace WallChess
             {
                 if (wallInfo.HasValue)
                 {
+                    // Keep the warning for developers but add player feedback
                     Debug.LogWarning($"TryCommitAtMouse: Invalid placement {wallInfo.Value.orientation} ({wallInfo.Value.x},{wallInfo.Value.y})");
+                    
+                    // Provide visual feedback to the player
+                    HandleInvalidUserPlacement(wallInfo.Value);
                 }
                 else
                 {
@@ -228,6 +241,29 @@ namespace WallChess
             Debug.Log("HandleFailedPlacement: Returned to PlayerTurn state");
         }
         
+        /// <summary>
+        /// Provide player feedback for invalid wall placement attempts
+        /// </summary>
+        private void HandleInvalidUserPlacement(UnifiedWallInfo attemptedPlacement)
+        {
+            // Visual feedback - flash the invalid position in red
+            if (visuals != null)
+            {
+                visuals.ShowInvalidPlacementFeedback(attemptedPlacement.worldPosition);
+            }
+            
+            // Audio feedback if available
+            if (wallManager.invalidPlacementSound != null)
+            {
+                AudioSource.PlayClipAtPoint(wallManager.invalidPlacementSound, 
+                    Camera.main != null ? Camera.main.transform.position : Vector3.zero, 0.5f);
+            }
+            
+            // UI feedback - could be extended with a UI message system
+            // For now, the debug warning serves as developer feedback
+            // In production, this could show a UI tooltip like "Cannot place wall here"
+        }
+        
         // Legacy method for compatibility
         void Commit(GapDetector.WallInfo info)
         {
@@ -260,6 +296,12 @@ namespace WallChess
         bool IsWithinBounds(Vector3 p)
         {
             return gridSystem?.IsWithinGridBounds(p) ?? false;
+        }
+        
+        bool IsAIPlacement()
+        {
+            // Check if the current player is AI
+            return gameManager != null && gameManager.IsCurrentPlayerAI();
         }
         
         /// <summary>

@@ -905,6 +905,7 @@ namespace WallChess
         // New pawn system API
         public int GetActivePawnIndex() => activePlayerIndex;
         public int CurrentPlayerIndex => activePlayerIndex;
+        public bool IsCurrentPlayerAI() => activePlayerIndex >= 0 && activePlayerIndex < pawns.Count && pawns[activePlayerIndex].isAI;
         public Vector2Int GetPawnPosition(int pawnIndex)
         {
             if (pawnIndex >= 0 && pawnIndex < pawns.Count)

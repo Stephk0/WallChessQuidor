@@ -31,6 +31,10 @@ namespace WallChess
         [SerializeField] private List<GameObject> wallPrefabs = new List<GameObject>();
         [Tooltip("List of wall prefabs to randomly choose from for placement")]
         
+        [Header("Audio Feedback")]
+        [SerializeField] public AudioClip invalidPlacementSound;
+        [Tooltip("Sound played when user attempts invalid wall placement")]
+        
         [Header("Prefab Orientation")]
         [SerializeField] private Vector3 horizontalRotation = Vector3.zero;
         [Tooltip("Rotation applied to prefabs when placing horizontally")]

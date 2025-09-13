@@ -83,17 +83,45 @@ namespace WallChess.Pawn
         
         void FindPawnIndex()
         {
+            // First check if this GameObject itself is registered as a pawn
             for (int i = 0; i < gameManager.pawns.Count; i++)
             {
                 if (gameManager.pawns[i].avatar == gameObject)
                 {
                     pawnIndex = i;
-                    LogDebug($"Found pawn index: {pawnIndex}");
+                    LogDebug($"Found pawn index: {pawnIndex} (direct match)");
                     return;
                 }
             }
             
-            LogWarning("Could not determine pawn index - this GameObject is not associated with any pawn avatar");
+            // Walk up the hierarchy to find the parent pawn object
+            Transform current = transform.parent;
+            while (current != null)
+            {
+                for (int i = 0; i < gameManager.pawns.Count; i++)
+                {
+                    if (gameManager.pawns[i].avatar == current.gameObject)
+                    {
+                        pawnIndex = i;
+                        LogDebug($"Found pawn index: {pawnIndex} from parent {current.name}");
+                        return;
+                    }
+                }
+                current = current.parent;
+            }
+            
+            // Only warn if this appears to be a pawn-related object based on naming
+            if (gameObject.name.ToLower().Contains("pawn") || 
+                gameObject.name.ToLower().Contains("player") || 
+                gameObject.name.ToLower().Contains("opponent"))
+            {
+                LogWarning("Could not determine pawn index - this GameObject is not associated with any pawn avatar");
+            }
+            else
+            {
+                // This is likely a non-pawn object, so just log debug info
+                LogDebug("Not a pawn object - visual controller will remain inactive");
+            }
         }
         
         void OnTurnChanged(TurnChangeEventArgs eventArgs)
