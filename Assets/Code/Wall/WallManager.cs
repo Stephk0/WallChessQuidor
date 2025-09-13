@@ -288,16 +288,16 @@ namespace WallChess
             if (coordinateConverter == null) return;
 
             // debug hooks kept from original
-            if (Input.GetKeyDown(KeyCode.Y)) placement.RunAutomaticWallTest();
-            if (Input.GetKeyDown(KeyCode.T)) placement.TestWallBlocking();
-            if (Input.GetKeyDown(KeyCode.G)) TestGapDetection(); // New gap detection test
-            if (Input.GetKeyDown(KeyCode.V)) validator.DebugValidateGameState(); // NEW: Validate current game state
-            if (Input.GetKeyDown(KeyCode.B)) validator.DebugPrintAllPawnPaths(); // NEW: Print all pawn paths
+            if (UnityEngine.Input.GetKeyDown(KeyCode.Y)) placement.RunAutomaticWallTest();
+            if (UnityEngine.Input.GetKeyDown(KeyCode.T)) placement.TestWallBlocking();
+            if (UnityEngine.Input.GetKeyDown(KeyCode.G)) TestGapDetection(); // New gap detection test
+            if (UnityEngine.Input.GetKeyDown(KeyCode.V)) validator.DebugValidateGameState(); // NEW: Validate current game state
+            if (UnityEngine.Input.GetKeyDown(KeyCode.B)) validator.DebugPrintAllPawnPaths(); // NEW: Print all pawn paths
             
             // Pathfinding visualization controls
-            if (Input.GetKeyDown(KeyCode.P)) TogglePathfindingVisualization();
-            if (Input.GetKeyDown(KeyCode.O)) CyclePathfindingDebugMode();
-            if (Input.GetKeyDown(KeyCode.R)) RefreshPathfindingVisualization();
+            if (UnityEngine.Input.GetKeyDown(KeyCode.P)) TogglePathfindingVisualization();
+            if (UnityEngine.Input.GetKeyDown(KeyCode.O)) CyclePathfindingDebugMode();
+            if (UnityEngine.Input.GetKeyDown(KeyCode.R)) RefreshPathfindingVisualization();
 
             placement.Tick();
         }
@@ -332,10 +332,10 @@ namespace WallChess
         {
             var cam = Camera.main;
             if (!cam) return Vector3.zero;
-            var ray = cam.ScreenPointToRay(Input.mousePosition);
+            var ray = cam.ScreenPointToRay(UnityEngine.Input.mousePosition);
             var plane = new Plane(Vector3.forward, new Vector3(0, 0, placementPlaneZ));
             return plane.Raycast(ray, out float enter) ? ray.GetPoint(enter)
-                 : cam.ScreenToWorldPoint(new Vector3(Input.mousePosition.x, Input.mousePosition.y, Mathf.Abs(cam.transform.position.z - placementPlaneZ)));
+                 : cam.ScreenToWorldPoint(new Vector3(UnityEngine.Input.mousePosition.x, UnityEngine.Input.mousePosition.y, Mathf.Abs(cam.transform.position.z - placementPlaneZ)));
         }
 
         public bool TryPlaceWall(Vector3 worldPosition) => placement.TryPlaceWall(worldPosition);

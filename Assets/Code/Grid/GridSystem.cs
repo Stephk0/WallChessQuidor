@@ -550,6 +550,43 @@ namespace WallChess
         }
         
         /// <summary>
+        /// Check if movement between two positions is blocked by a wall
+        /// </summary>
+        public bool IsWallBetween(Vector2Int from, Vector2Int to)
+        {
+            Vector2Int diff = to - from;
+            
+            // Check horizontal movement blocked by vertical wall
+            if (diff.x == 1 && diff.y == 0)
+            {
+                int gapX = from.x * 2 + 1;
+                int gapY = from.y * 2;
+                return unifiedGrid[gapX, gapY].isOccupied;
+            }
+            else if (diff.x == -1 && diff.y == 0)
+            {
+                int gapX = to.x * 2 + 1;
+                int gapY = to.y * 2;
+                return unifiedGrid[gapX, gapY].isOccupied;
+            }
+            // Check vertical movement blocked by horizontal wall
+            else if (diff.y == 1 && diff.x == 0)
+            {
+                int gapX = from.x * 2;
+                int gapY = from.y * 2 + 1;
+                return unifiedGrid[gapX, gapY].isOccupied;
+            }
+            else if (diff.y == -1 && diff.x == 0)
+            {
+                int gapX = to.x * 2;
+                int gapY = to.y * 2 + 1;
+                return unifiedGrid[gapX, gapY].isOccupied;
+            }
+            
+            return false;
+        }
+        
+        /// <summary>
         /// SIMPLIFIED FIX: Each wall occupies exactly 3 points (2 endpoint gaps + 1 middle intersection)
         /// This prevents wall crossings while still allowing T-crossings
         /// </summary>

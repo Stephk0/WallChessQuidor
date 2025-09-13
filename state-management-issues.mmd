@@ -1,0 +1,14 @@
+graph LR
+    subgraph "State Management Issues"
+        SM1[StateMachine Pattern]
+        SM2[Enum-based States]
+        SM3[Turn Tracking]
+        SM4[Session Management]
+    end
+    
+    SM1 -.-> SM2
+    SM2 -.-> SM3
+    SM3 -.-> SM4
+    
+    classDef duplicate fill:#ffcccc
+    class SM1,SM2,SM3,SM4 duplicate

@@ -1,0 +1,1005 @@
+using UnityEngine;
+using System.Collections.Generic;
+
+namespace WallChess
+{
+    public enum GameState
+    {
+        GameStart,
+        BuildTiles,
+        PlayerTurn,
+        PawnMoving,
+        WallPlacement,
+        GameOver
+    }
+
+    public enum ActionType
+    {
+        Idle,
+        MovingPawn,
+        PlacingWall
+    }
+
+    /// <summary>
+    /// Comprehensive data structure for wall placement events - accessible to UI
+    /// </summary>
+    [System.Serializable]
+    public class WallPlacementResult
+    {
+        public GridSystem.WallInfo wallInfo;
+        public int playerIndex;
+        public int previousWallCount;
+        public int remainingWalls;
+        public bool turnEnded;
+        public int nextPlayerIndex;
+        
+        public override string ToString()
+        {
+            return $"Wall {wallInfo.orientation} at ({wallInfo.x},{wallInfo.y}) by Player {playerIndex}. Walls: {previousWallCount}→{remainingWalls}. Turn ended: {turnEnded}";
+        }
+    }
+
+    /// <summary>
+    /// REFACTORED WallChessGameManager - Using Player Pawn System
+    /// 
+    /// KEY IMPROVEMENTS:
+    /// - List-based pawn management (up to 4 players)
+    /// - Unified turn handling through activePlayerIndex
+    /// - Generalized win/start positions
+    /// - Eliminated player/opponent hardcoding
+    /// - Proper mutual exclusion between movement and wall placement
+    /// - Clean event-driven system for UI integration
+    /// 
+    /// PAWN SYSTEM:
+    /// - pawns[0] = Player 1, pawns[1] = Player 2, etc.
+    /// - activePlayerIndex tracks current turn
+    /// - All movement/wall logic works with "current active pawn"
+    /// - Supports 2-4 players with AI or human control
+    /// 
+    /// EVENT SYSTEM:
+    /// - OnWallPlacedComplete provides comprehensive data for UI
+    /// - Clean separation between game logic and UI updates
+    /// - All game state changes flow through events
+    /// </summary>
+    public class WallChessGameManager : MonoBehaviour
+    {
+        [System.Serializable]
+        public class PawnData
+        {
+            public Vector2Int position;
+            public Vector2Int startPosition;
+            public Vector2Int winPosition;
+            public int wallsRemaining;
+            public GameObject avatar;
+            public bool isActive;
+            public bool isAI;
+            
+            public PawnData(Vector2Int start, Vector2Int win, int walls)
+            {
+                startPosition = start;
+                position = start;
+                winPosition = win;
+                wallsRemaining = walls;
+                isActive = false;
+                isAI = false;
+                avatar = null;
+            }
+        }
+
+        [Header("Game Settings")]
+        public int gridSize = 9;
+        public float tileSize = 1f;
+        public float tileGap = 0.2f;
+        public int wallsPerPlayer = 9;
+        public int numberOfPlayers = 2;
+        
+        [Header("Debug Settings")]
+        [Tooltip("When enabled, allows any pawn to be moved regardless of turn")]
+        public bool debugMode = false;
+        
+        [Header("Wall Settings")]
+        public float wallThickness = 0.15f;
+        public float wallHeight = 1f;
+
+        [Header("Prefabs")]
+        public GameObject tilePrefab;
+        public GameObject[] playerPrefabs; // Array for different player colors
+        public GameObject wallPrefab;
+        public GameObject highlightPrefab;
+        public GameObject highlightConfirmPrefab; // NEW: Confirm highlight for drag operations
+        public GameObject wallPreviewPrefab;
+
+        [Header("Current State")]
+        public GameState currentState = GameState.PlayerTurn;
+        public ActionType currentAction = ActionType.Idle;
+        
+        // PLAYER PAWN SYSTEM
+        [Header("Player Pawn System")]
+        public List<PawnData> pawns = new List<PawnData>();
+        public int activePlayerIndex = 0;
+
+        private GridSystem gridSystem;
+        private PlayerControllerV2 playerController;
+        private WallManager wallManager;
+        private HighlightManager highlightManager;
+        private WallValidator wallValidator;
+        private TileAnimationController tileAnimationController;
+        
+        // CLEAN EVENT SYSTEM - UI accessible events
+        public static System.Action<WallPlacementResult> OnWallPlacedComplete;
+        public static System.Action<int> OnPlayerTurnChanged; // playerIndex
+        public static System.Action<int> OnPlayerVictory; // winning playerIndex
+
+        // Context menu items
+        [ContextMenu("Grid/Apply Current Settings")]
+        private void Ctx_ApplyCurrent() => UpdateGridConfiguration(gridSize, tileSize, tileGap);
+
+        [ContextMenu("Grid/Presets/Small 8x8")]
+        private void Ctx_Small() => UpdateGridConfiguration(8, tileSize, tileGap);
+
+        [ContextMenu("Grid/Presets/Medium 12x12")]
+        private void Ctx_Medium() => UpdateGridConfiguration(12, tileSize, tileGap);
+
+        [ContextMenu("Grid/Presets/Large 16x16")]
+        private void Ctx_Large() => UpdateGridConfiguration(16, tileSize, tileGap);
+
+        [ContextMenu("Debug/Toggle Debug Mode")]
+        private void Ctx_ToggleDebugMode()
+        {
+            debugMode = !debugMode;
+            Debug.Log($"Debug Mode {(debugMode ? "ENABLED" : "DISABLED")} - Any pawn can be moved");
+        }
+
+        [ContextMenu("Debug/Test Pawn System")]
+        private void Ctx_TestPawnSystem()
+        {
+            Debug.Log($"Active Player: {activePlayerIndex}, Total Pawns: {pawns.Count}");
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                var pawn = pawns[i];
+                Debug.Log($"Pawn {i}: Position={pawn.position}, Walls={pawn.wallsRemaining}, Active={pawn.isActive}");
+            }
+        }
+        
+        [ContextMenu("Debug/Validate Game State")]
+        private void Ctx_ValidateGameState()
+        {
+            if (wallValidator != null)
+            {
+                wallValidator.DebugValidateGameState();
+            }
+            else
+            {
+                Debug.LogWarning("WallValidator not initialized");
+            }
+        }
+        
+        [ContextMenu("Debug/Print All Pawn Paths")]
+        private void Ctx_PrintAllPawnPaths()
+        {
+            if (wallValidator != null)
+            {
+                wallValidator.DebugPrintAllPawnPaths();
+                Debug.Log("Printed pathfinding debug info for all pawns");
+            }
+            else
+            {
+                Debug.LogWarning("WallValidator not initialized");
+            }
+        }
+        
+        [ContextMenu("Animation/Test One By One Animation")]
+        private void Ctx_TestOneByOneAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.OneByOne);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Test Row Animation")]
+        private void Ctx_TestRowAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.RowByRow);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Test Circular Animation")]
+        private void Ctx_TestCircularAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.CircularSpiral);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Test Ripple Animation")]
+        private void Ctx_TestRippleAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.Ripple);
+                // Clear existing tiles first
+                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
+                ChangeState(GameState.BuildTiles);
+                StartTileAnimationSequence();
+            }
+        }
+        
+        [ContextMenu("Animation/Skip Animation")]
+        private void Ctx_SkipAnimation()
+        {
+            if (Application.isPlaying && tileAnimationController != null)
+            {
+                tileAnimationController.CompleteAnimationImmediately();
+            }
+        }
+        
+        [ContextMenu("Animation/Toggle Pacing Curve")]
+        private void Ctx_TogglePacingCurve()
+        {
+            if (tileAnimationController != null)
+            {
+                tileAnimationController.TogglePacingCurve();
+                Debug.Log($"Pacing curve is now {(tileAnimationController.IsPacingCurveEnabled() ? "ENABLED" : "DISABLED")}");
+            }
+        }
+
+        void Start()
+        {
+            InitializeGame();
+        }
+
+        void InitializeGame()
+        {
+            // Initialize GridSystem
+            gridSystem = gameObject.GetComponent<GridSystem>();
+            
+            GridSystem.GridSettings gridSettings = new GridSystem.GridSettings
+            {
+                gridSize = this.gridSize,
+                tileSize = this.tileSize,
+                tileGap = this.tileGap,
+                wallThickness = this.wallThickness,
+                wallHeight = this.wallHeight
+            };
+            
+            // Skip tile creation if we're going to animate them
+            bool skipTileCreation = true; // We'll always use animation for charm
+            gridSystem.Initialize(gridSettings, default, skipTileCreation);
+
+            // Initialize Player Pawn System
+            InitializePlayerPawnSystem();
+
+            // Initialize controllers
+            playerController = gameObject.GetComponent<PlayerControllerV2>();
+            wallManager = gameObject.GetComponent<WallManager>();
+            highlightManager = gameObject.GetComponent<HighlightManager>();
+            
+            // If no HighlightManager exists, add one
+            if (highlightManager == null)
+            {
+                highlightManager = gameObject.AddComponent<HighlightManager>();
+            }
+            
+            // Initialize WallValidator with pathfinding manager
+            wallValidator = new WallValidator(gridSystem, this);
+
+            playerController.Initialize(this);
+            wallManager.Initialize(this);
+            highlightManager.Initialize(highlightPrefab, highlightConfirmPrefab); // Pass both prefabs
+
+            // Set up initial tile occupancy
+            foreach (var pawn in pawns)
+            {
+                gridSystem.SetTileOccupied(pawn.position, true);
+            }
+
+            // Initialize TileAnimationController
+            InitializeTileAnimation();
+            
+            //init game state to BuildTiles for animated tile creation
+            ChangeState(GameState.BuildTiles);
+            StartTileAnimationSequence();
+
+            // Subscribe to events
+            gridSystem.OnTileOccupancyChanged += OnTileOccupancyChanged;
+            gridSystem.OnWallPlaced += OnWallPlaced;
+            gridSystem.OnGridCleared += OnGridCleared;
+            
+            // Set first player as active
+            SetActivePlayer(0);
+
+            if (debugMode)
+            {
+                Debug.Log("Game started in DEBUG MODE - Any pawn can be moved");
+            }
+            
+            Debug.Log($"Game initialized with {pawns.Count} players. Active player: {activePlayerIndex}");
+        }
+        
+        void InitializeTileAnimation()
+        {
+            // Add TileAnimationController if it doesn't exist
+            tileAnimationController = GetComponent<TileAnimationController>();
+            if (tileAnimationController == null)
+            {
+                tileAnimationController = gameObject.AddComponent<TileAnimationController>();
+                Debug.Log("WallChessGameManager: Added TileAnimationController component");
+            }
+            
+            // Initialize the animation controller
+            tileAnimationController.Initialize(gridSystem, this);
+            
+            // Subscribe to animation events
+            tileAnimationController.OnTileAnimationCompleted += OnTileAnimationCompleted;
+            
+            Debug.Log("TileAnimationController initialized");
+        }
+        
+        void StartTileAnimationSequence()
+        {
+            if (tileAnimationController != null)
+            {
+                tileAnimationController.StartTileAnimation();
+                Debug.Log("Tile animation sequence started");
+            }
+            else
+            {
+                Debug.LogError("TileAnimationController not found - skipping animation");
+                ChangeState(GameState.PlayerTurn);
+            }
+        }
+        
+        private void OnTileAnimationCompleted()
+        {
+            Debug.Log("Tile animation completed - transitioning to PlayerTurn");
+            ChangeState(GameState.PlayerTurn);
+            SetActivePlayer(0); // Start with first player
+        }
+
+        void InitializePlayerPawnSystem()
+        {
+            // Ensure even number of players (2 or 4)
+            numberOfPlayers = Mathf.Clamp(numberOfPlayers, 2, 4);
+            if (numberOfPlayers == 3) numberOfPlayers = 4; // Round up to 4 as per requirements
+
+            pawns.Clear();
+
+            // Calculate positions based on grid size
+            int center = Mathf.FloorToInt((gridSize - 1) / 2);
+
+            // Create pawns with generalized start/win positions
+            for (int i = 0; i < numberOfPlayers; i++)
+            {
+                Vector2Int startPos, winPos;
+                
+                if (numberOfPlayers == 2)
+                {
+                    // 2 players: opposite sides (bottom vs top)
+                    if (i == 0)
+                    {
+                        startPos = new Vector2Int(center, 0);           // Bottom center
+                        winPos = new Vector2Int(-1, gridSize - 1);     // Any position on top row
+                    }
+                    else
+                    {
+                        startPos = new Vector2Int(center, gridSize - 1); // Top center  
+                        winPos = new Vector2Int(-1, 0);                 // Any position on bottom row
+                    }
+                }
+                else // 4 players
+                {
+                    // 4 players: all sides (bottom, left, top, right)
+                    switch (i)
+                    {
+                        case 0: // Bottom
+                            startPos = new Vector2Int(center, 0);
+                            winPos = new Vector2Int(-1, gridSize - 1);
+                            break;
+                        case 1: // Left
+                            startPos = new Vector2Int(0, center);
+                            winPos = new Vector2Int(gridSize - 1, -1);
+                            break;
+                        case 2: // Top
+                            startPos = new Vector2Int(center, gridSize - 1);
+                            winPos = new Vector2Int(-1, 0);
+                            break;
+                        case 3: // Right
+                            startPos = new Vector2Int(gridSize - 1, center);
+                            winPos = new Vector2Int(0, -1);
+                            break;
+                        default:
+                            startPos = winPos = Vector2Int.zero;
+                            break;
+                    }
+                }
+
+                PawnData pawn = new PawnData(startPos, winPos, wallsPerPlayer);
+                pawns.Add(pawn);
+            }
+
+            // Create avatars for all pawns
+            CreatePlayerAvatars();
+        }
+
+        void CreatePlayerAvatars()
+        {
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                var pawn = pawns[i];
+                Vector3 worldPos = gridSystem.GridToWorldPosition(pawn.position);
+
+                GameObject prefab = null;
+                if (playerPrefabs != null && i < playerPrefabs.Length && playerPrefabs[i] != null)
+                {
+                    prefab = playerPrefabs[i];
+                }
+                else if (playerPrefabs != null && playerPrefabs.Length > 0 && playerPrefabs[0] != null)
+                {
+                    prefab = playerPrefabs[0]; // Fallback to first prefab
+                }
+
+                if (prefab != null)
+                {
+                    pawn.avatar = Instantiate(prefab, worldPos, Quaternion.identity);
+                    pawn.avatar.name = $"Player{i}_Avatar";
+                }
+            }
+        }
+
+        public void ChangeState(GameState newState)
+        {
+            GameState previousState = currentState;
+            currentState = newState;
+            
+            // Update action type based on state
+            UpdateCurrentAction();
+            
+            Debug.Log($"Game state changed from {previousState} to {newState} | Action: {currentAction}");
+        }
+        
+        private void UpdateCurrentAction()
+        {
+            switch (currentState)
+            {
+                case GameState.BuildTiles:
+                    currentAction = ActionType.Idle;
+                    break;
+                case GameState.PlayerTurn:
+                    currentAction = ActionType.Idle;
+                    break;
+                case GameState.PawnMoving:
+                    currentAction = ActionType.MovingPawn;
+                    break;
+                case GameState.WallPlacement:
+                    currentAction = ActionType.PlacingWall;
+                    break;
+                case GameState.GameOver:
+                    currentAction = ActionType.Idle;
+                    break;
+            }
+        }
+
+        public void SetActivePlayer(int playerIndex)
+        {
+            if (playerIndex < 0 || playerIndex >= pawns.Count) 
+            {
+                Debug.LogError($"SetActivePlayer: Invalid playerIndex {playerIndex}. Valid range: 0-{pawns.Count - 1}");
+                return;
+            }
+
+            int previousActivePlayer = activePlayerIndex;
+            
+            // Deactivate all pawns
+            foreach (var pawn in pawns)
+                pawn.isActive = false;
+
+            // Activate selected player
+            activePlayerIndex = playerIndex;
+            pawns[activePlayerIndex].isActive = true;
+            
+            Debug.Log($"SetActivePlayer: Changed from {previousActivePlayer} to {activePlayerIndex}. Pawn.isActive = {pawns[activePlayerIndex].isActive}");
+            
+            // Show valid move highlights for the active pawn
+            ShowValidMovesForActivePawn();
+            
+            // With on-demand pathfinding, no pre-calculation needed
+            // Path validation happens when walls are placed
+            Debug.Log($"Player {activePlayerIndex} turn started - on-demand pathfinding ready");
+            
+            // Trigger UI event for turn change
+            OnPlayerTurnChanged?.Invoke(activePlayerIndex);
+        }
+
+        /// <summary>
+        /// Always show valid move highlights when it's the active pawn's turn
+        /// </summary>
+        private void ShowValidMovesForActivePawn()
+        {
+            var activePawn = GetActivePawn();
+            if (activePawn != null && highlightManager != null && playerController != null)
+            {
+                // Use PlayerController's GetValidMoves which includes jump logic
+                List<Vector2Int> validMoves = playerController.GetValidMoves(activePawn.position);
+                highlightManager.ShowValidMoveHighlights(validMoves, gridSystem);
+                Debug.Log($"Always showing {validMoves.Count} valid move highlights for active pawn {activePlayerIndex} (includes jumps)");
+            }
+        }
+
+        /// <summary>
+        /// Hide valid move highlights (called when turn ends or game state changes)
+        /// </summary>
+        private void HideValidMovesForActivePawn()
+        {
+            if (highlightManager != null)
+            {
+                highlightManager.ClearValidMoveHighlights();
+            }
+        }
+
+        public PawnData GetActivePawn()
+        {
+            if (activePlayerIndex >= 0 && activePlayerIndex < pawns.Count)
+                return pawns[activePlayerIndex];
+            return null;
+        }
+
+        public bool CanMovePawn(int pawnIndex)
+        {
+            if (debugMode) return true; // Debug mode allows any pawn movement
+
+            // Check if movement is allowed at all
+            if (!CanMovePawns()) return false;
+            
+            // Normal mode - only active player's pawn can move
+            return pawnIndex == activePlayerIndex;
+        }
+
+        public bool CanMovePawns()
+        {
+            if (debugMode) return true;
+            return currentAction == ActionType.Idle;
+        }
+
+        public bool CanPlaceWalls()
+        {
+            if (debugMode) return true;
+            return currentAction == ActionType.Idle || currentAction == ActionType.PlacingWall;
+        }
+
+        public bool CurrentPlayerHasWalls()
+        {
+            if (debugMode) return true;
+            
+            var activePawn = GetActivePawn();
+            return activePawn != null && activePawn.wallsRemaining > 0;
+        }
+
+        /// <summary>
+        /// Unified pawn movement method - works with any pawn index
+        /// </summary>
+        public bool TryMovePawn(int pawnIndex, Vector2Int toPosition)
+        {
+            if (pawnIndex < 0 || pawnIndex >= pawns.Count)
+            {
+                Debug.LogWarning($"Invalid pawn index: {pawnIndex}");
+                return false;
+            }
+
+            // Check if this pawn can be moved
+            if (!CanMovePawn(pawnIndex))
+            {
+                Debug.LogWarning($"Cannot move pawn {pawnIndex} - not their turn");
+                return false;
+            }
+
+            var pawn = pawns[pawnIndex];
+            Vector2Int fromPosition = pawn.position;
+
+            // Use PlayerController's GetValidMoves which includes jump logic
+            List<Vector2Int> validMoves = playerController?.GetValidMoves(fromPosition) ?? new List<Vector2Int>();
+            if (!validMoves.Contains(toPosition))
+            {
+                Debug.LogWarning($"Invalid move from {fromPosition} to {toPosition}");
+                return false;
+            }
+
+            // Transition to movement state (unless in debug mode)
+            if (!debugMode)
+            {
+                ChangeState(GameState.PawnMoving);
+            }
+
+            // Execute the move
+            MovePawn(pawnIndex, toPosition);
+            Debug.Log($"Pawn {pawnIndex} moved from {fromPosition} to {toPosition}");
+
+            // Complete the movement
+            CompletePawnMovement();
+            
+            return true;
+        }
+
+        /// <summary>
+        /// Legacy compatibility method for PlayerControllerV2
+        /// </summary>
+        public bool TryMovePawn(Vector2Int fromPosition, Vector2Int toPosition)
+        {
+            // Find which pawn is at the from position
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                if (pawns[i].position == fromPosition)
+                {
+                    return TryMovePawn(i, toPosition);
+                }
+            }
+
+            Debug.LogWarning($"No pawn found at position {fromPosition}");
+            return false;
+        }
+
+        void MovePawn(int pawnIndex, Vector2Int newPosition)
+        {
+            if (pawnIndex < 0 || pawnIndex >= pawns.Count) return;
+
+            var pawn = pawns[pawnIndex];
+            
+            // Clear old position
+            gridSystem.SetTileOccupied(pawn.position, false);
+            
+            // Update position
+            pawn.position = newPosition;
+            
+            // Set new position as occupied
+            gridSystem.SetTileOccupied(pawn.position, true);
+            
+            // Move avatar if it exists
+            if (pawn.avatar != null)
+            {
+                Vector3 worldPos = gridSystem.GridToWorldPosition(pawn.position);
+                pawn.avatar.transform.position = worldPos;
+            }
+
+            if (debugMode)
+                Debug.Log($"Debug Mode: Pawn {pawnIndex} moved to {newPosition}");
+        }
+
+        void CompletePawnMovement()
+        {
+            if (CheckVictory()) return;
+
+            // In debug mode, don't change turns automatically
+            if (debugMode)
+            {
+                Debug.Log("Debug Mode: Turn not changed automatically");
+                return;
+            }
+
+            // Normal mode - end turn and switch to next player
+            EndTurn();
+        }
+
+        public bool CheckVictory()
+        {
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                var pawn = pawns[i];
+                
+                // Check if pawn reached win position
+                bool hasWon = false;
+                if (pawn.winPosition.x == -1) // Any position on specified row
+                {
+                    hasWon = (pawn.position.y == pawn.winPosition.y);
+                }
+                else if (pawn.winPosition.y == -1) // Any position on specified column
+                {
+                    hasWon = (pawn.position.x == pawn.winPosition.x);
+                }
+                else // Specific position
+                {
+                    hasWon = (pawn.position == pawn.winPosition);
+                }
+
+                if (hasWon)
+                {
+                    Debug.Log($"VICTORY: Player {i} Wins!");
+                    ChangeState(GameState.GameOver);
+                    
+                    // Hide highlights when game ends
+                    HideValidMovesForActivePawn();
+                    
+                    // Trigger UI victory event
+                    OnPlayerVictory?.Invoke(i);
+                    
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public void EndTurn()
+        {
+            if (CheckVictory()) return;
+
+            // In debug mode, don't change turns automatically
+            if (debugMode)
+            {
+                Debug.Log("Debug Mode: Turn not changed automatically");
+                return;
+            }
+
+            // ENHANCED DEBUG: Track activePlayerIndex changes
+            int previousPlayer = activePlayerIndex;
+            
+            // Hide highlights for the current player before switching
+            HideValidMovesForActivePawn();
+            
+            // Switch to next player
+            int nextPlayer = (activePlayerIndex + 1) % pawns.Count;
+            SetActivePlayer(nextPlayer);
+            
+            // Return to turn state
+            ChangeState(GameState.PlayerTurn);
+            
+            Debug.Log($"Turn ended. Previous player: {previousPlayer}, New active player: {activePlayerIndex}, Total players: {pawns.Count}");
+        }
+
+        public bool TryStartWallPlacement()
+        {
+            if (!CanPlaceWalls())
+            {
+                Debug.LogWarning("Cannot place walls - game is in movement state");
+                return false;
+            }
+
+            if (debugMode)
+            {
+                Debug.Log("Debug Mode: Wall placement initiated");
+                return true;
+            }
+
+            ChangeState(GameState.WallPlacement);
+            Debug.Log("Wall placement mode activated");
+            return true;
+        }
+
+        public void CompleteWallPlacement(bool wallWasPlaced = true)
+        {
+            Debug.Log($"CompleteWallPlacement called: wallWasPlaced={wallWasPlaced}, activePlayer={activePlayerIndex}, debugMode={debugMode}");
+            
+            if (debugMode)
+            {
+                Debug.Log($"Debug Mode: Wall placement completed (success: {wallWasPlaced})");
+                return;
+            }
+
+            if (wallWasPlaced)
+            {
+                Debug.Log($"CompleteWallPlacement: Wall placement successful - calling EndTurn() for activePlayer {activePlayerIndex}");
+                EndTurn(); // Switch to next player after successful wall placement
+            }
+            else
+            {
+                Debug.Log("Wall placement cancelled - returning to player turn");
+                ChangeState(GameState.PlayerTurn);
+            }
+        }
+
+        #region Event Handlers
+        private void OnTileOccupancyChanged(Vector2Int gridPos, bool occupied)
+        {
+            Debug.Log($"Tile {gridPos} occupancy changed to: {occupied}");
+        }
+
+        /// <summary>
+        /// ENHANCED EVENT-DRIVEN: Comprehensive wall placed handler with UI data
+        /// </summary>
+        private void OnWallPlaced(GridSystem.WallInfo wallInfo)
+        {
+            var activePawn = GetActivePawn();
+            int previousWalls = activePawn?.wallsRemaining ?? 0;
+            
+            Debug.Log($"OnWallPlaced EVENT: Wall {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y}) by Player {activePlayerIndex}");
+            
+            // In debug mode, don't modify game state
+            if (debugMode)
+            {
+                Debug.Log("Debug Mode: Wall placed but no game state changes");
+                // Still trigger UI events for debug visualization
+                OnWallPlacedComplete?.Invoke(new WallPlacementResult
+                {
+                    wallInfo = wallInfo,
+                    playerIndex = activePlayerIndex,
+                    remainingWalls = previousWalls,
+                    turnEnded = false,
+                    nextPlayerIndex = activePlayerIndex
+                });
+                return;
+            }
+            
+            // Decrement wall count for active player
+            if (activePawn != null)
+            {
+                activePawn.wallsRemaining--;
+                Debug.Log($"OnWallPlaced: Player {activePlayerIndex} walls: {previousWalls} → {activePawn.wallsRemaining}");
+            }
+
+            // Calculate next player for UI
+            int nextPlayer = (activePlayerIndex + 1) % pawns.Count;
+            
+            // Create comprehensive result for UI/events
+            var result = new WallPlacementResult
+            {
+                wallInfo = wallInfo,
+                playerIndex = activePlayerIndex,
+                previousWallCount = previousWalls,
+                remainingWalls = activePawn?.wallsRemaining ?? 0,
+                turnEnded = true,
+                nextPlayerIndex = nextPlayer
+            };
+            
+            // Trigger UI event BEFORE state changes
+            OnWallPlacedComplete?.Invoke(result);
+            
+            // Handle turn transition - this will change activePlayerIndex
+            Debug.Log($"OnWallPlaced: Ending turn - {activePlayerIndex} → {nextPlayer}");
+            CompleteWallPlacement(true);
+        }
+
+        private void OnGridCleared()
+        {
+            Debug.Log("Grid cleared");
+            foreach (var pawn in pawns)
+            {
+                pawn.wallsRemaining = wallsPerPlayer;
+            }
+        }
+        #endregion
+
+        #region Public API - Legacy Compatibility
+        // Legacy properties for PlayerControllerV2 compatibility
+        public Vector2Int playerPosition => pawns.Count > 0 ? pawns[0].position : Vector2Int.zero;
+        public Vector2Int opponentPosition => pawns.Count > 1 ? pawns[1].position : Vector2Int.zero;
+        public int playerWallsRemaining => pawns.Count > 0 ? pawns[0].wallsRemaining : 0;
+        public int opponentWallsRemaining => pawns.Count > 1 ? pawns[1].wallsRemaining : 0;
+        
+        // Legacy methods
+        public GameObject GetPlayerAvatar() => pawns.Count > 0 ? pawns[0].avatar : null;
+        public GameObject GetOpponentAvatar() => pawns.Count > 1 ? pawns[1].avatar : null;
+        
+        // Legacy state checking methods for backward compatibility
+        public bool IsPlayerTurn() => debugMode || activePlayerIndex == 0;
+        public bool IsOpponentTurn() => debugMode || activePlayerIndex == 1;
+        public bool IsInMovementState() => currentAction == ActionType.MovingPawn;
+        
+        // Legacy current player method (returns old enum values) 
+        public int GetCurrentPlayerLegacy() => activePlayerIndex;
+        
+        // Legacy pawn type enum for compatibility
+        public enum PawnType { Player, Opponent }
+        public PawnType GetCurrentPlayer() => activePlayerIndex == 0 ? PawnType.Player : PawnType.Opponent;
+        
+        // Core API
+        public GridSystem GetGridSystem() => gridSystem;
+        public PlayerControllerV2 GetPlayerController() => playerController;
+        public WallManager GetWallManager() => wallManager;
+        public HighlightManager GetHighlightManager() => highlightManager;
+        public WallValidator GetWallValidator() => wallValidator;
+        
+        // New pawn system API
+        public int GetActivePawnIndex() => activePlayerIndex;
+        public Vector2Int GetPawnPosition(int pawnIndex)
+        {
+            if (pawnIndex >= 0 && pawnIndex < pawns.Count)
+                return pawns[pawnIndex].position;
+            return Vector2Int.zero;
+        }
+        
+        public GameObject GetPawnAvatar(int pawnIndex)
+        {
+            if (pawnIndex >= 0 && pawnIndex < pawns.Count)
+                return pawns[pawnIndex].avatar;
+            return null;
+        }
+        #endregion
+
+        #region Action Validation
+        public bool CanInitiateMove()
+        {
+            return CanMovePawns() && currentAction != ActionType.MovingPawn;
+        }
+
+        public bool CanInitiateWallPlacement()
+        {
+            return CanPlaceWalls() && currentAction != ActionType.MovingPawn;
+        }
+
+        public GameState GetCurrentState() => currentState;
+        public ActionType GetCurrentAction() => currentAction;
+        
+        public bool IsActionBlocked()
+        {
+            return currentState == GameState.GameOver;
+        }
+        #endregion
+
+        #region Grid Configuration Updates
+        public void UpdateGridConfiguration(int newGridSize = -1, float newTileSize = -1, float newTileGap = -1)
+        {
+            bool changed = false;
+            
+            if (newGridSize > 0 && newGridSize != gridSize)
+            {
+                gridSize = newGridSize;
+                changed = true;
+            }
+            
+            if (newTileSize > 0 && newTileSize != tileSize)
+            {
+                tileSize = newTileSize;
+                changed = true;
+            }
+            
+            if (newTileGap >= 0 && newTileGap != tileGap)
+            {
+                tileGap = newTileGap;
+                changed = true;
+            }
+
+            if (changed && gridSystem != null)
+            {
+                GridSystem.GridSettings newSettings = new GridSystem.GridSettings
+                {
+                    gridSize = this.gridSize,
+                    tileSize = this.tileSize,
+                    tileGap = this.tileGap,
+                    wallThickness = this.wallThickness,
+                    wallHeight = this.wallHeight
+                };
+                
+                gridSystem.ReconfigureGrid(newSettings);
+                Debug.Log($"Grid reconfigured: {gridSize}x{gridSize}, tileSize={tileSize}, gap={tileGap}");
+                
+                // Reinitialize pawn system with new grid size
+                InitializePlayerPawnSystem();
+            }
+        }
+        #endregion
+
+        void OnDestroy()
+        {
+            // Unsubscribe from events
+            if (gridSystem != null)
+            {
+                gridSystem.OnTileOccupancyChanged -= OnTileOccupancyChanged;
+                gridSystem.OnWallPlaced -= OnWallPlaced;
+                gridSystem.OnGridCleared -= OnGridCleared;
+            }
+            
+            // Unsubscribe from animation events
+            if (tileAnimationController != null)
+            {
+                tileAnimationController.OnTileAnimationCompleted -= OnTileAnimationCompleted;
+            }
+            
+            // WallValidator cleanup no longer needed with new on-demand system
+            // The new WallValidator doesn't maintain state that needs cleanup
+        }
+    }
+}

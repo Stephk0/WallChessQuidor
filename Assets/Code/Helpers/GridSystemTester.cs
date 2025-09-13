@@ -27,12 +27,12 @@ namespace WallChess
 
         void Update()
         {
-            if (Input.GetKeyDown(KeyCode.T))
+            if (UnityEngine.Input.GetKeyDown(KeyCode.T))
             {
                 ToggleLabels();
             }
             
-            if (Input.GetKeyDown(KeyCode.R))
+            if (UnityEngine.Input.GetKeyDown(KeyCode.R))
             {
                 TestLabelUpdates();
             }

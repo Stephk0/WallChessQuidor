@@ -89,51 +89,51 @@ namespace WallChess
         
         private void HandleDebugInput()
         {
-            if (Input.GetKeyDown(KeyCode.I))
+            if (UnityEngine.Input.GetKeyDown(KeyCode.I))
             {
                 ShowSystemInfo();
             }
             
             if (wallManager != null)
             {
-                if (Input.GetKeyDown(KeyCode.P))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.P))
                 {
                     Debug.Log("Manual toggle pathfinding visualization...");
                     wallManager.TogglePathfindingVisualization();
                 }
                 
-                if (Input.GetKeyDown(KeyCode.O))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.O))
                 {
                     Debug.Log("Manual cycle debug mode...");
                     wallManager.CyclePathfindingDebugMode();
                 }
                 
-                if (Input.GetKeyDown(KeyCode.R))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.R))
                 {
                     Debug.Log("Manual refresh visualization...");
                     wallManager.RefreshPathfindingVisualization();
                 }
                 
                 // Additional test controls
-                if (Input.GetKeyDown(KeyCode.Alpha1))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha1))
                 {
                     Debug.Log("Setting debug mode to Pawn1Only...");
                     wallManager.SetPathfindingDebugMode(GridPathfindingVisualizer.DebugMode.Pawn1Only);
                 }
                 
-                if (Input.GetKeyDown(KeyCode.Alpha2))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha2))
                 {
                     Debug.Log("Setting debug mode to Pawn2Only...");
                     wallManager.SetPathfindingDebugMode(GridPathfindingVisualizer.DebugMode.Pawn2Only);
                 }
                 
-                if (Input.GetKeyDown(KeyCode.Alpha3))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha3))
                 {
                     Debug.Log("Setting debug mode to BothPawns...");
                     wallManager.SetPathfindingDebugMode(GridPathfindingVisualizer.DebugMode.BothPawns);
                 }
                 
-                if (Input.GetKeyDown(KeyCode.Alpha0))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha0))
                 {
                     Debug.Log("Setting debug mode to Off...");
                     wallManager.SetPathfindingDebugMode(GridPathfindingVisualizer.DebugMode.Off);
@@ -141,7 +141,7 @@ namespace WallChess
             }
             else
             {
-                if (Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.O) || Input.GetKeyDown(KeyCode.R))
+                if (UnityEngine.Input.GetKeyDown(KeyCode.P) || UnityEngine.Input.GetKeyDown(KeyCode.O) || UnityEngine.Input.GetKeyDown(KeyCode.R))
                 {
                     Debug.LogWarning("WallManager not found! Make sure the WallManager component exists in the scene.");
                 }

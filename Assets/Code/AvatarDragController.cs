@@ -132,7 +132,7 @@ namespace WallChess
 
         Vector3 GetMouseWorldPosition()
         {
-            Vector3 mouseScreenPos = Input.mousePosition;
+            Vector3 mouseScreenPos = UnityEngine.Input.mousePosition;
             Ray cameraRay = controller.GetMainCamera().ScreenPointToRay(mouseScreenPos);
             
             // Create a plane at Z=0 position, facing towards the camera

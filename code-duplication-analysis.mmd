@@ -1,0 +1,15 @@
+graph TB
+    subgraph "Code Duplication Analysis"
+        WP1[WallPlacer v1]
+        WP2[WallPlacer v2]
+        WP3[WallPlacer v3]
+        WP4[WallPlacer v4]
+        WP5[WallPlacer v5]
+        
+        BK1[Backup Files x12]
+        MVP[MVP Folder - Dead Code]
+        DOC[Inline Documentation]
+    end
+    
+    classDef waste fill:#ff9999
+    class WP1,WP2,WP3,WP4,BK1,MVP,DOC waste

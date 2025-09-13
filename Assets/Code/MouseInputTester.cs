@@ -7,13 +7,13 @@ namespace WallChess
         void Update()
         {
             // Test mouse input detection
-            if (Input.GetMouseButtonDown(0))
+            if (UnityEngine.Input.GetMouseButtonDown(0))
             {
                 Camera cam = Camera.main;
-                Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+                Ray ray = cam.ScreenPointToRay(UnityEngine.Input.mousePosition);
                 RaycastHit hit;
                 
-                Debug.Log($"Mouse clicked at screen position: {Input.mousePosition}");
+                Debug.Log($"Mouse clicked at screen position: {UnityEngine.Input.mousePosition}");
                 Debug.Log($"Camera ray origin: {ray.origin}, direction: {ray.direction}");
                 
                 if (Physics.Raycast(ray, out hit))

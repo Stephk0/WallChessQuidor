@@ -43,12 +43,12 @@ namespace WallChess
 
         public void Tick()
         {
-            if (Input.GetMouseButtonDown(0) && gameManager.CanInitiateWallPlacement())
+            if (UnityEngine.Input.GetMouseButtonDown(0) && gameManager.CanInitiateWallPlacement())
             {
                 if (!IsClickingOnAvatar() && gameManager.TryStartWallPlacement())
                     isPlacing = true;
             }
-            else if (Input.GetMouseButton(0) && isPlacing)
+            else if (UnityEngine.Input.GetMouseButton(0) && isPlacing)
             {
                 Vector3 mouse = GetMouseWorld();
                 if (!IsWithinBounds(mouse)) { visuals.HidePreview(); return; }
@@ -63,13 +63,13 @@ namespace WallChess
                 }
                 else visuals.HidePreview();
             }
-            else if (Input.GetMouseButtonUp(0) && isPlacing)
+            else if (UnityEngine.Input.GetMouseButtonUp(0) && isPlacing)
             {
                 TryCommitAtMouse();
                 orientationLock = null; // Reset orientation lock after placement attempt
                 isPlacing = false;
             }
-            else if (Input.GetMouseButtonUp(0) && gameManager.GetCurrentState() == GameState.WallPlacement && !isPlacing)
+            else if (UnityEngine.Input.GetMouseButtonUp(0) && gameManager.GetCurrentState() == GameState.WallPlacement && !isPlacing)
             {
                 gameManager.CompleteWallPlacement(false);
             }
@@ -251,10 +251,10 @@ namespace WallChess
         {
             var cam = Camera.main;
             if (!cam) return Vector3.zero;
-            var ray = cam.ScreenPointToRay(Input.mousePosition);
+            var ray = cam.ScreenPointToRay(UnityEngine.Input.mousePosition);
             var plane = new Plane(Vector3.forward, new Vector3(0, 0, planeZ));
             return plane.Raycast(ray, out float enter) ? ray.GetPoint(enter)
-                 : cam.ScreenToWorldPoint(new Vector3(Input.mousePosition.x, Input.mousePosition.y, Mathf.Abs(cam.transform.position.z - planeZ)));
+                 : cam.ScreenToWorldPoint(new Vector3(UnityEngine.Input.mousePosition.x, UnityEngine.Input.mousePosition.y, Mathf.Abs(cam.transform.position.z - planeZ)));
         }
 
         bool IsWithinBounds(Vector3 p)

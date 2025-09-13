@@ -1,0 +1,54 @@
+graph TB
+    subgraph "Core Game Systems"
+        GM[WallChessGameManager<br/>GOD OBJECT]
+        GS[GameState]
+        Board[ChessBoard]
+        Rules[RuleEngine]
+    end
+    
+    subgraph "Input Layer"
+        MI[MouseInput]
+        TI[TouchInput]
+        KI[KeyboardInput]
+    end
+    
+    subgraph "AI System"
+        AI[AIController]
+        MM[MinimaxEngine]
+        Eval[PositionEvaluator]
+    end
+    
+    subgraph "UI Layer"
+        UI[UIManager]
+        HUD[GameHUD]
+        Menu[MenuSystem]
+    end
+    
+    subgraph "Rendering"
+        TR[TileRenderer]
+        PR[PieceRenderer]
+        FX[EffectsSystem]
+    end
+    
+    GM --> GS
+    GM --> Board
+    GM --> Rules
+    GM --> AI
+    GM --> UI
+    
+    MI --> GM
+    TI --> GM
+    KI --> GM
+    
+    AI --> MM
+    MM --> Eval
+    
+    UI --> HUD
+    UI --> Menu
+    
+    GM --> TR
+    GM --> PR
+    GM --> FX
+    
+    classDef problem fill:#ffcccc
+    class GM problem

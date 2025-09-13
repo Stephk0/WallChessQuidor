@@ -26,17 +26,17 @@ namespace WallChess
         
         void Update()
         {
-            if (Input.GetKeyDown(testValidMovesKey))
+            if (UnityEngine.Input.GetKeyDown(testValidMovesKey))
             {
                 TestValidMoves();
             }
             
-            if (Input.GetKeyDown(testWallPlacementKey))
+            if (UnityEngine.Input.GetKeyDown(testWallPlacementKey))
             {
                 TestWallPlacement();
             }
             
-            if (Input.GetKeyDown(testBoundaryWallsKey))
+            if (UnityEngine.Input.GetKeyDown(testBoundaryWallsKey))
             {
                 TestBoundaryWalls();
             }
