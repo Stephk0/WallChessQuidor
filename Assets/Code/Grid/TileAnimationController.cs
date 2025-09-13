@@ -25,9 +25,24 @@ namespace WallChess
         [SerializeField] private float delayBeforeAnimation = 0.5f;
         [SerializeField] private float timeBetweenTiles = 0.05f;
         [SerializeField] private float timeBetweenRows = 0.1f;
+        [Header("Scale Animation")]
         [SerializeField] private bool enableScaleAnimation = true;
         [SerializeField] private AnimationCurve scaleAnimationCurve = AnimationCurve.EaseInOut(0, 0, 1, 1);
         [SerializeField] private float scaleAnimationDuration = 0.3f;
+        
+        [Header("Rotation Animation")]
+        [SerializeField] private bool enableRotationAnimation = true;
+        [SerializeField] private Vector3 minStartRotation = new Vector3(-45f, -45f, -45f);
+        [SerializeField] private Vector3 maxStartRotation = new Vector3(45f, 45f, 45f);
+        [SerializeField] private AnimationCurve rotationAnimationCurve = AnimationCurve.EaseInOut(0, 1, 1, 0);
+        [SerializeField] private float rotationAnimationDuration = 0.4f;
+        
+        [Header("Position Animation")]
+        [SerializeField] private bool enablePositionAnimation = true;
+        [SerializeField] private Vector3 minStartPositionOffset = new Vector3(-0.5f, 2f, -0.5f);
+        [SerializeField] private Vector3 maxStartPositionOffset = new Vector3(0.5f, 3f, 0.5f);
+        [SerializeField] private AnimationCurve positionAnimationCurve = AnimationCurve.EaseInOut(0, 1, 1, 0);
+        [SerializeField] private float positionAnimationDuration = 0.5f;
         
         [Header("Overall Pacing Control")]
         [SerializeField] private bool useOverallPacingCurve = true;
@@ -320,32 +335,124 @@ namespace WallChess
             {
                 animatedTiles.Add(tile);
                 
-                if (enableScaleAnimation)
-                {
-                    yield return StartCoroutine(AnimateTileScale(tile));
-                }
+                // Apply all enabled animations
+                yield return StartCoroutine(AnimateTile(tile));
                 
                 // Play sound effect
                 PlayTileSound();
             }
         }
 
-        private IEnumerator AnimateTileScale(GameObject tile)
+        /// <summary>
+        /// Generate a random rotation within the specified range
+        /// </summary>
+        private Vector3 GenerateRandomRotation()
         {
+            return new Vector3(
+                Random.Range(minStartRotation.x, maxStartRotation.x),
+                Random.Range(minStartRotation.y, maxStartRotation.y),
+                Random.Range(minStartRotation.z, maxStartRotation.z)
+            );
+        }
+        
+        /// <summary>
+        /// Generate a random position offset within the specified range
+        /// </summary>
+        private Vector3 GenerateRandomPositionOffset()
+        {
+            return new Vector3(
+                Random.Range(minStartPositionOffset.x, maxStartPositionOffset.x),
+                Random.Range(minStartPositionOffset.y, maxStartPositionOffset.y),
+                Random.Range(minStartPositionOffset.z, maxStartPositionOffset.z)
+            );
+        }
+        
+        /// <summary>
+        /// Get the maximum animation duration from all enabled animations
+        /// </summary>
+        private float GetMaxAnimationDuration()
+        {
+            float maxDuration = 0f;
+            
+            if (enableScaleAnimation)
+                maxDuration = Mathf.Max(maxDuration, scaleAnimationDuration);
+            
+            if (enableRotationAnimation)
+                maxDuration = Mathf.Max(maxDuration, rotationAnimationDuration);
+            
+            if (enablePositionAnimation)
+                maxDuration = Mathf.Max(maxDuration, positionAnimationDuration);
+            
+            return maxDuration > 0 ? maxDuration : 0.1f; // Minimum duration fallback
+        }
+
+private IEnumerator AnimateTile(GameObject tile)
+        {
+            // Store original values
             Vector3 originalScale = tile.transform.localScale;
-            tile.transform.localScale = Vector3.zero;
+            Vector3 originalPosition = tile.transform.position;
+            Quaternion originalRotation = tile.transform.rotation;
+            
+            // Generate random start values
+            Vector3 startRotation = GenerateRandomRotation();
+            Vector3 startPositionOffset = GenerateRandomPositionOffset();
+            
+            // Set initial animation state
+            if (enableScaleAnimation)
+                tile.transform.localScale = Vector3.zero;
+            
+            if (enableRotationAnimation)
+                tile.transform.rotation = Quaternion.Euler(startRotation);
+            
+            if (enablePositionAnimation)
+                tile.transform.position = originalPosition + startPositionOffset;
+            
+            // Determine animation duration (use the longest duration)
+            float maxDuration = GetMaxAnimationDuration();
             
             float elapsed = 0;
-            while (elapsed < scaleAnimationDuration)
+            while (elapsed < maxDuration)
             {
                 elapsed += Time.deltaTime;
-                float t = elapsed / scaleAnimationDuration;
-                float scaleValue = scaleAnimationCurve.Evaluate(t);
-                tile.transform.localScale = originalScale * scaleValue;
+                
+                // Animate scale
+                if (enableScaleAnimation && elapsed < scaleAnimationDuration)
+                {
+                    float scaleT = elapsed / scaleAnimationDuration;
+                    float scaleValue = scaleAnimationCurve.Evaluate(scaleT);
+                    tile.transform.localScale = originalScale * scaleValue;
+                }
+                
+                // Animate rotation
+                if (enableRotationAnimation && elapsed < rotationAnimationDuration)
+                {
+                    float rotationT = elapsed / rotationAnimationDuration;
+                    float rotationValue = rotationAnimationCurve.Evaluate(rotationT);
+                    Vector3 currentRotation = Vector3.Lerp(startRotation, Vector3.zero, rotationValue);
+                    tile.transform.rotation = originalRotation * Quaternion.Euler(currentRotation);
+                }
+                
+                // Animate position
+                if (enablePositionAnimation && elapsed < positionAnimationDuration)
+                {
+                    float positionT = elapsed / positionAnimationDuration;
+                    float positionValue = positionAnimationCurve.Evaluate(positionT);
+                    Vector3 currentOffset = Vector3.Lerp(startPositionOffset, Vector3.zero, positionValue);
+                    tile.transform.position = originalPosition + currentOffset;
+                }
+                
                 yield return null;
             }
             
-            tile.transform.localScale = originalScale;
+            // Ensure final values are set correctly
+            if (enableScaleAnimation)
+                tile.transform.localScale = originalScale;
+            
+            if (enableRotationAnimation)
+                tile.transform.rotation = originalRotation;
+            
+            if (enablePositionAnimation)
+                tile.transform.position = originalPosition;
         }
         #endregion
 
@@ -612,7 +719,63 @@ namespace WallChess
             Debug.Log($"TileAnimationController: Pacing curve {(useOverallPacingCurve ? "ENABLED" : "DISABLED")}");
         }
         
+                /// <summary>
+        /// Configure rotation animation settings
+        /// </summary>
+        public void SetRotationAnimation(bool enabled, Vector3 minRotation, Vector3 maxRotation, AnimationCurve curve, float duration)
+        {
+            if (!isAnimating)
+            {
+                enableRotationAnimation = enabled;
+                minStartRotation = minRotation;
+                maxStartRotation = maxRotation;
+                rotationAnimationCurve = curve;
+                rotationAnimationDuration = duration;
+            }
+        }
+        
         /// <summary>
+        /// Configure position animation settings
+        /// </summary>
+        public void SetPositionAnimation(bool enabled, Vector3 minOffset, Vector3 maxOffset, AnimationCurve curve, float duration)
+        {
+            if (!isAnimating)
+            {
+                enablePositionAnimation = enabled;
+                minStartPositionOffset = minOffset;
+                maxStartPositionOffset = maxOffset;
+                positionAnimationCurve = curve;
+                positionAnimationDuration = duration;
+            }
+        }
+        
+        /// <summary>
+        /// Configure scale animation settings
+        /// </summary>
+        public void SetScaleAnimation(bool enabled, AnimationCurve curve, float duration)
+        {
+            if (!isAnimating)
+            {
+                enableScaleAnimation = enabled;
+                scaleAnimationCurve = curve;
+                scaleAnimationDuration = duration;
+            }
+        }
+        
+        /// <summary>
+        /// Enable or disable all animation types at once
+        /// </summary>
+        public void SetAllAnimations(bool scale, bool rotation, bool position)
+        {
+            if (!isAnimating)
+            {
+                enableScaleAnimation = scale;
+                enableRotationAnimation = rotation;
+                enablePositionAnimation = position;
+            }
+        }
+        
+/// <summary>
         /// Check if pacing curve is enabled
         /// </summary>
         public bool IsPacingCurveEnabled()
@@ -669,7 +832,80 @@ namespace WallChess
             Debug.Log($"TileAnimationController: Pacing curve {(useOverallPacingCurve ? "ENABLED" : "DISABLED")}");
         }
         
-        [ContextMenu("Debug/Show Animation Stats")]
+                [ContextMenu("Debug/Test Scale Only")]
+        private void DebugTestScaleOnly()
+        {
+            if (Application.isPlaying)
+            {
+                SetAllAnimations(true, false, false);
+                StartTileAnimation();
+            }
+        }
+        
+        [ContextMenu("Debug/Test Rotation Only")]
+        private void DebugTestRotationOnly()
+        {
+            if (Application.isPlaying)
+            {
+                SetAllAnimations(false, true, false);
+                StartTileAnimation();
+            }
+        }
+        
+        [ContextMenu("Debug/Test Position Only")]
+        private void DebugTestPositionOnly()
+        {
+            if (Application.isPlaying)
+            {
+                SetAllAnimations(false, false, true);
+                StartTileAnimation();
+            }
+        }
+        
+        [ContextMenu("Debug/Test All Animations")]
+        private void DebugTestAllAnimations()
+        {
+            if (Application.isPlaying)
+            {
+                SetAllAnimations(true, true, true);
+                StartTileAnimation();
+            }
+        }
+        
+        [ContextMenu("Debug/Random Animation Settings")]
+        private void DebugRandomizeSettings()
+        {
+            if (!isAnimating)
+            {
+                // Randomize rotation ranges
+                minStartRotation = new Vector3(
+                    Random.Range(-90f, -10f),
+                    Random.Range(-90f, -10f),
+                    Random.Range(-90f, -10f)
+                );
+                maxStartRotation = new Vector3(
+                    Random.Range(10f, 90f),
+                    Random.Range(10f, 90f),
+                    Random.Range(10f, 90f)
+                );
+                
+                // Randomize position ranges  
+                minStartPositionOffset = new Vector3(
+                    Random.Range(-2f, -0.1f),
+                    Random.Range(1f, 4f),
+                    Random.Range(-2f, -0.1f)
+                );
+                maxStartPositionOffset = new Vector3(
+                    Random.Range(0.1f, 2f),
+                    Random.Range(1f, 4f),
+                    Random.Range(0.1f, 2f)
+                );
+                
+                Debug.Log("TileAnimationController: Settings randomized!");
+            }
+        }
+        
+[ContextMenu("Debug/Show Animation Stats")]
         private void DebugShowAnimationStats()
         {
             if (isAnimating)

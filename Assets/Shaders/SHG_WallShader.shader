@@ -2047,22 +2047,25 @@ Shader "WallShader"
 			HLSLPROGRAM
 
 			
-
-			#pragma multi_compile_local _ALPHATEST_ON
-			#pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
-			#define ASE_FOG 1
-			#define _ALPHATEST_SHADOW_ON 1
-			#define ASE_VERSION 19904
-			#define ASE_SRP_VERSION 170004
+            #pragma multi_compile_local _ALPHATEST_ON
+            #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
+            #define ASE_FOG 1
+            #define _ALPHATEST_SHADOW_ON 1
+            #define ASE_VERSION 19904
+            #define ASE_SRP_VERSION 170004
 
 
 			
+            #pragma multi_compile _ DOTS_INSTANCING_ON
+		
 
 			#pragma multi_compile_fragment _ _DBUFFER_MRT1 _DBUFFER_MRT2 _DBUFFER_MRT3
 			#pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
 			#pragma multi_compile_fragment _ _RENDER_PASS_ENABLED
 
 			
+            #pragma multi_compile_fragment _ _WRITE_RENDERING_LAYERS
+		
 
 			#pragma vertex vert
 			#pragma fragment frag
@@ -2070,16 +2073,8 @@ Shader "WallShader"
 			#define SHADERPASS SHADERPASS_GBUFFER
 
 			
-            #if ASE_SRP_VERSION >=140007
-			#include_with_pragmas "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DOTS.hlsl"
-			#endif
-		
 
 			
-			#if ASE_SRP_VERSION >=140007
-			#include_with_pragmas "Packages/com.unity.render-pipelines.universal/ShaderLibrary/RenderingLayers.hlsl"
-			#endif
-		
 
 			#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
 			#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Texture.hlsl"
@@ -2520,4 +2515,4 @@ WireConnection;63;1;50;0
 WireConnection;63;2;68;0
 WireConnection;16;2;63;0
 ASEEND*/
-//CHKSM=6D387299FE5171569F0F60FC424A0C285E8AC5AF
+//CHKSM=4556644F37114FDFE080469027577AF108FA9887

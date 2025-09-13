@@ -37,22 +37,98 @@ namespace WallChess
         
         #region Pie Dial Control
         
-        void SetupPieDialControl()
+void SetupPieDialControl()
         {
             if (!enablePieDialControl || pieDial == null) return;
             
             // Subscribe to direction confirmed event
             pieDial.OnDirectionConfirmed.AddListener(OnPieDialDirectionConfirmed);
+            pieDial.OnDirectionChanged.AddListener(OnPieDialDirectionChanged);
             
             if (enableDebugLogs) Debug.Log("Pie dial control initialized");
         }
-        
-        void OnPieDialDirectionConfirmed(Vector2 direction)
+
+void OnPieDialDirectionChanged(Vector2 direction)
         {
             if (!enablePieDialControl) return;
             
             // Only process if it's the current player's turn
             if (!CanMoveAvatar(true)) return;
+            
+            // Show preview of movement during pie dial interaction
+            ShowPieDialMovementPreview(direction);
+        }
+        
+void ShowPieDialMovementPreview(Vector2 direction)
+        {
+            // Get current player position
+            Vector2Int currentPos = GetAvatarPosition(true);
+            
+            // Get player avatar once for the entire method
+            GameObject playerAvatar = gameManager.GetPlayerAvatar();
+            if (playerAvatar == null) return;
+            
+            // Convert direction to grid movement
+            Vector2Int gridDirection = ConvertDirectionToGridMovement(direction);
+            if (gridDirection == Vector2Int.zero) 
+            {
+                // If no clear direction, move avatar back to current position
+                playerAvatar.transform.position = GetWorldPosition(currentPos);
+                return;
+            }
+            
+            Vector2Int targetPos = currentPos + gridDirection;
+            
+            // Move player avatar to show preview based on direction magnitude
+            Vector3 currentWorldPos = GetWorldPosition(currentPos);
+            Vector3 targetWorldPos = GetWorldPosition(targetPos);
+            
+            // Use direction magnitude to interpolate between current and target position
+            float lerpFactor = Mathf.Clamp01(direction.magnitude);
+            Vector3 previewPos = Vector3.Lerp(currentWorldPos, targetWorldPos, lerpFactor);
+            
+            playerAvatar.transform.position = previewPos;
+        }
+        
+
+
+/// <summary>
+        /// Call this when the turn changes to update PieDial position to active player
+        /// </summary>
+/// <summary>
+        /// Call this when the turn changes to enable/disable PieDial based on active player
+        /// </summary>
+        public void OnTurnChanged()
+        {
+            if (enablePieDialControl && pieDial != null)
+            {
+                // Enable/disable PieDial based on if it's the current player's turn
+                bool isPlayerTurn = CanMoveAvatar(true);
+                pieDial.gameObject.SetActive(isPlayerTurn);
+                
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"PieDial updated for turn change. Active: {isPlayerTurn}");
+                }
+            }
+        }
+
+
+        
+void OnPieDialDirectionConfirmed(Vector2 direction)
+        {
+            if (!enablePieDialControl) return;
+            
+            // Only process if it's the current player's turn
+            if (!CanMoveAvatar(true)) return;
+            
+            // Reset player avatar to actual position before confirming move
+            GameObject playerAvatar = gameManager.GetPlayerAvatar();
+            Vector2Int playerCurrentPos = GetAvatarPosition(true);
+            if (playerAvatar != null)
+            {
+                playerAvatar.transform.position = GetWorldPosition(playerCurrentPos);
+            }
             
             // Convert direction to grid movement
             Vector2Int gridDirection = ConvertDirectionToGridMovement(direction);
@@ -66,6 +142,7 @@ namespace WallChess
             if (IsValidMove(currentPos, targetPos))
             {
                 MoveAvatar(true, targetPos);
+                
                 if (enableDebugLogs)
                 {
                     Debug.Log($"Pie dial move executed: {currentPos} -> {targetPos} (direction: {direction})");
@@ -80,6 +157,7 @@ namespace WallChess
                 if (bestMove != Vector2Int.zero)
                 {
                     MoveAvatar(true, bestMove);
+                    
                     if (enableDebugLogs)
                     {
                         Debug.Log($"Pie dial jump move executed: {currentPos} -> {bestMove} (direction: {direction})");
@@ -151,18 +229,48 @@ namespace WallChess
             OnPieDialDirectionConfirmed(direction);
         }
         
-        void OnDestroy()
+void OnDestroy()
         {
-            // Cleanup pie dial event subscription
+            // Cleanup pie dial event subscriptions
             if (pieDial != null)
             {
                 pieDial.OnDirectionConfirmed.RemoveListener(OnPieDialDirectionConfirmed);
+                pieDial.OnDirectionChanged.RemoveListener(OnPieDialDirectionChanged);
             }
         }
         
         #endregion
         
-        void SetupAvatarDragControllers()
+                /// <summary>
+        /// Reset all avatar drag controllers to their initial state
+        /// Called when external events (like wall placement) should cancel any active drags
+        /// </summary>
+        public void ResetAllAvatarDragControllers()
+        {
+            // Reset player avatar drag controller
+            GameObject playerAvatar = gameManager.GetPlayerAvatar();
+            if (playerAvatar != null)
+            {
+                AvatarDragController playerDrag = playerAvatar.GetComponent<AvatarDragController>();
+                if (playerDrag != null)
+                {
+                    playerDrag.ForceReset();
+                }
+            }
+
+            // Reset opponent avatar drag controller  
+            GameObject opponentAvatar = gameManager.GetOpponentAvatar();
+            if (opponentAvatar != null)
+            {
+                AvatarDragController opponentDrag = opponentAvatar.GetComponent<AvatarDragController>();
+                if (opponentDrag != null)
+                {
+                    opponentDrag.ForceReset();
+                }
+            }
+        }
+
+public void SetupAvatarDragControllers()
         {
             // Add drag controller to player avatar
             GameObject playerAvatar = gameManager.GetPlayerAvatar();

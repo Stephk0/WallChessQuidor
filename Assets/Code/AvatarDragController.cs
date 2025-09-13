@@ -39,9 +39,14 @@ namespace WallChess
                 return;
             }
             
-            isDragging = true;
-            originalPosition = transform.position;
+                        isDragging = true;
+            
+            // Always update to current grid-aligned position to ensure accuracy
             originalGridPosition = controller.GetAvatarPosition(isPlayerAvatar);
+            originalPosition = controller.GridToWorldPosition(originalGridPosition);
+            
+            // Ensure avatar is at correct grid position before dragging starts
+            transform.position = originalPosition;
             
             // Reset highlight tracking when starting drag
             lastHighlightedPosition = Vector2Int.one * -1;
@@ -120,7 +125,49 @@ namespace WallChess
             }
         }
 
-        void ClearConfirmHighlights()
+                /// <summary>
+        /// Force reset the drag controller to its initial state
+        /// Called when external events (like wall placement) should cancel any active drag
+        /// </summary>
+        /// <summary>
+        /// Force reset the drag controller to its initial state
+        /// Called when external events (like wall placement) should cancel any active drag
+        /// </summary>
+        /// <summary>
+        /// Force reset the drag controller to its initial state
+        /// Called when external events (like wall placement) should cancel any active drag
+        /// </summary>
+        public void ForceReset()
+        {
+            if (isDragging)
+            {
+                Debug.Log($"ForceReset: Resetting {(isPlayerAvatar ? "player" : "opponent")} drag controller");
+                
+                // Return avatar to original position
+                transform.position = originalPosition;
+                
+                // Clear all drag state
+                isDragging = false;
+                lastHighlightedPosition = Vector2Int.one * -1;
+                wasLastPositionValid = false;
+                
+                // Clear any highlights
+                ClearConfirmHighlights();
+            }
+            else
+            {
+                // Even if not dragging, update original position to current grid position
+                // This ensures the position is always in sync with the actual pawn position
+                if (controller != null)
+                {
+                    Vector2Int currentGridPos = controller.GetAvatarPosition(isPlayerAvatar);
+                    originalPosition = controller.GridToWorldPosition(currentGridPos);
+                    transform.position = originalPosition;
+                }
+            }
+        }
+
+void ClearConfirmHighlights()
         {
             // Clear only the confirm highlights, leaving valid move highlights visible
             HighlightManager highlightManager = controller.GetHighlightManager();

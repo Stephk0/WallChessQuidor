@@ -41,25 +41,52 @@ namespace WallChess
             this.planeZ = placementPlaneZ;
         }
 
-        public void Tick()
+public void Tick()
         {
             if (UnityEngine.Input.GetMouseButtonDown(0) && gameManager.CanInitiateWallPlacement())
             {
-                if (!IsClickingOnAvatar() && gameManager.TryStartWallPlacement())
-                    isPlacing = true;
+                Vector3 mouseWorldPos = GetMouseWorld();
+                
+                // Only start wall placement if:
+                // 1. Not clicking on an avatar
+                // 2. Click is within game board bounds
+                // 3. Player has walls remaining
+                if (!IsClickingOnAvatar() && IsWithinBounds(mouseWorldPos) && HasWallsRemaining())
+                {
+                    if (gameManager.TryStartWallPlacement())
+                    {
+                        isPlacing = true;
+                        Debug.Log($"WallPlacementController: Started wall placement at world position {mouseWorldPos}");
+                    }
+                }
+                else
+                {
+                    if (IsClickingOnAvatar())
+                        Debug.Log("WallPlacementController: Clicked on avatar - not starting wall placement");
+                    else if (!IsWithinBounds(mouseWorldPos))
+                        Debug.Log($"WallPlacementController: Click outside game board bounds - not starting wall placement (position: {mouseWorldPos})");
+                    else if (!HasWallsRemaining())
+                        Debug.Log("WallPlacementController: No walls remaining - not starting wall placement");
+                }
             }
             else if (UnityEngine.Input.GetMouseButton(0) && isPlacing)
             {
                 Vector3 mouse = GetMouseWorld();
-                if (!IsWithinBounds(mouse)) { visuals.HidePreview(); return; }
+                
+                // Continue placement only if still within bounds
+                if (!IsWithinBounds(mouse)) 
+                { 
+                    visuals.HidePreview(); 
+                    return; 
+                }
 
                 var wallInfo = FindNearestWallGap(mouse);
-                if (wallInfo.HasValue)
+                                if (wallInfo.HasValue)
                 {
                     bool canPlace = ValidateWallPlacement(wallInfo.Value);
                     Vector3 scale = wallManager.GetWallScale(wallInfo.Value.orientation);
-                    Quaternion rotation = wallManager.GetWallRotation(wallInfo.Value.orientation);
-                    visuals.UpdatePreview(wallInfo.Value.worldPosition, scale, rotation, canPlace);
+                    // Use smooth rotation preview instead of immediate rotation
+                    visuals.UpdatePreviewWithSmoothRotation(wallInfo.Value.worldPosition, scale, wallInfo.Value.orientation, canPlace);
                 }
                 else visuals.HidePreview();
             }
@@ -78,8 +105,25 @@ namespace WallChess
         /// <summary>
         /// CLEAN EVENT-DRIVEN: API wall placement with no direct state management
         /// </summary>
+/// <summary>
+        /// ENHANCED: API wall placement with boundary and limit checking
+        /// </summary>
         public bool TryPlaceWall(Vector3 worldPosition)
         {
+            // Check if position is within game board bounds
+            if (!IsWithinBounds(worldPosition))
+            {
+                Debug.LogWarning($"TryPlaceWall: Position {worldPosition} is outside game board bounds");
+                return false;
+            }
+            
+            // Check if player has walls remaining
+            if (!HasWallsRemaining())
+            {
+                Debug.LogWarning("TryPlaceWall: Player has no walls remaining");
+                return false;
+            }
+            
             if (!gameManager.CanInitiateWallPlacement()) 
             {
                 Debug.LogWarning("TryPlaceWall: Cannot initiate wall placement");
@@ -120,19 +164,38 @@ namespace WallChess
         /// <summary>
         /// FIXED: Comprehensive validation that prevents duplicate placements
         /// </summary>
+/// <summary>
+        /// ENHANCED: Comprehensive validation including wall limits
+        /// </summary>
         private bool ValidateWallPlacement(UnifiedWallInfo wallInfo)
         {
-            // First check: Basic game rules (player has walls, game allows wall placement)
-            if (!gameManager.CanPlaceWalls() || !gameManager.CurrentPlayerHasWalls())
+            // First check: Player has walls remaining
+            if (!HasWallsRemaining())
+            {
+                Debug.Log("ValidateWallPlacement: Player has no walls remaining");
                 return false;
+            }
+            
+            // Second check: Basic game rules (game allows wall placement)
+            if (!gameManager.CanPlaceWalls())
+            {
+                Debug.Log("ValidateWallPlacement: Game doesn't allow wall placement currently");
+                return false;
+            }
 
-            // Second check: Grid occupancy (prevents duplicate placements)
+            // Third check: Grid occupancy (prevents duplicate placements)
             if (!gridSystem.CanPlaceWall(wallInfo.orientation, wallInfo.x, wallInfo.y))
+            {
+                Debug.Log($"ValidateWallPlacement: Grid position ({wallInfo.x},{wallInfo.y}) {wallInfo.orientation} is occupied");
                 return false;
+            }
 
-            // Third check: Advanced rules (path blocking, intersections)
+            // Fourth check: Advanced rules (path blocking, intersections)
             if (!validator.CanPlace(wallInfo.orientation, wallInfo.x, wallInfo.y))
+            {
+                Debug.Log($"ValidateWallPlacement: Advanced validation failed for ({wallInfo.x},{wallInfo.y}) {wallInfo.orientation}");
                 return false;
+            }
 
             return true;
         }
@@ -215,9 +278,17 @@ namespace WallChess
             // CLEAN: Only place wall - let event system handle all game state changes
             bool placed = wallManager.PlaceWall(info.orientation, info.x, info.y, info.worldPosition, scale);
             
-            if (placed)
+                        if (placed)
             {
                 wallManager.AddManagedWall(wallObj);
+                
+                // Reset any active avatar drag states when wall is placed
+                var playerController = gameManager.GetPlayerController();
+                if (playerController != null)
+                {
+                    playerController.ResetAllAvatarDragControllers();
+                }
+                
                 Debug.Log($"Commit: Wall placed successfully - event system will handle turn ending");
                 // OnWallPlaced event will handle: wall count, turn ending, UI updates, state changes
             }
@@ -297,6 +368,24 @@ namespace WallChess
         {
             return gridSystem?.IsWithinGridBounds(p) ?? false;
         }
+
+/// <summary>
+        /// Check if the current player has walls remaining
+        /// </summary>
+        private bool HasWallsRemaining()
+        {
+            var activePawn = gameManager?.GetActivePawn();
+            if (activePawn == null) return false;
+            
+            bool hasWalls = activePawn.wallsRemaining > 0;
+            if (!hasWalls)
+            {
+                Debug.Log($"WallPlacementController: Player {gameManager.GetActivePawnIndex()} has no walls remaining ({activePawn.wallsRemaining}/{gameManager.wallsPerPlayer})");
+            }
+            
+            return hasWalls;
+        }
+
         
         bool IsAIPlacement()
         {
@@ -681,6 +770,42 @@ namespace WallChess
             Debug.Log($"Vertical scale: {verticalScale} (expected length: {expectedLength})");
         }
 
+                /// <summary>
+        /// Test method to manually trigger smooth rotation on a wall (for debugging)
+        /// Bind this to a key to test rotation
+        /// </summary>
+        public void TestSmoothRotation()
+        {
+            Debug.Log("=== TESTING SMOOTH ROTATION ===");
+            
+            // Find any existing wall in the scene to test rotation
+            var managedWalls = wallManager.GetManagedWalls();
+            if (managedWalls != null && managedWalls.Count > 0)
+            {
+                GameObject testWall = managedWalls[0];
+                if (testWall != null)
+                {
+                    Debug.Log($"Testing smooth rotation on wall: {testWall.name}");
+                    
+                    // Get current orientation (assume it's horizontal, rotate to vertical)
+                    GridSystem.Orientation newOrientation = GridSystem.Orientation.Vertical;
+                    
+                    // Test the smooth rotation
+                    wallManager.ApplySmoothRotation(testWall, newOrientation);
+                    
+                    Debug.Log($"Smooth rotation applied. Duration: {wallManager.GetRotationLerpDuration()}s, Enabled: {wallManager.IsRotationLerpEnabled()}");
+                }
+                else
+                {
+                    Debug.LogWarning("TestSmoothRotation: Found wall reference but GameObject is null");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("TestSmoothRotation: No walls found to test rotation on. Place a wall first.");
+            }
+                }
+        
         public void TestWallBlocking()
         {
             Debug.Log("=== UNIFIED WALL BLOCKING TEST ===");

@@ -264,7 +264,7 @@ namespace WallChess
             InitializeGame();
         }
 
-        void InitializeGame()
+void InitializeGame()
         {
             // Initialize GridSystem
             gridSystem = gameObject.GetComponent<GridSystem>();
@@ -282,10 +282,7 @@ namespace WallChess
             bool skipTileCreation = true; // We'll always use animation for charm
             gridSystem.Initialize(gridSettings, default, skipTileCreation);
 
-            // Initialize Player Pawn System
-            InitializePlayerPawnSystem();
-
-            // Initialize controllers
+            // Initialize controllers (but not players yet)
             playerController = gameObject.GetComponent<PlayerControllerV2>();
             wallManager = gameObject.GetComponent<WallManager>();
             highlightManager = gameObject.GetComponent<HighlightManager>();
@@ -296,23 +293,14 @@ namespace WallChess
                 highlightManager = gameObject.AddComponent<HighlightManager>();
             }
             
-            // Initialize WallValidator with pathfinding manager
-            wallValidator = new WallValidator(gridSystem, this);
-
             playerController.Initialize(this);
             wallManager.Initialize(this);
             highlightManager.Initialize(highlightPrefab, highlightConfirmPrefab); // Pass both prefabs
 
-            // Set up initial tile occupancy
-            foreach (var pawn in pawns)
-            {
-                gridSystem.SetTileOccupied(pawn.position, true);
-            }
-
             // Initialize TileAnimationController
             InitializeTileAnimation();
             
-            //init game state to BuildTiles for animated tile creation
+            // Start in BuildTiles state - NO player spawning yet
             ChangeState(GameState.BuildTiles);
             StartTileAnimationSequence();
 
@@ -321,15 +309,7 @@ namespace WallChess
             gridSystem.OnWallPlaced += OnWallPlaced;
             gridSystem.OnGridCleared += OnGridCleared;
             
-            // Set first player as active
-            SetActivePlayer(0);
-
-            if (debugMode)
-            {
-                Debug.Log("Game started in DEBUG MODE - Any pawn can be moved");
-            }
-            
-            Debug.Log($"Game initialized with {pawns.Count} players. Active player: {activePlayerIndex}");
+            Debug.Log($"Game initialized in BuildTiles state. Players will spawn after tile animation.");
         }
         
         void InitializeTileAnimation()
@@ -365,11 +345,40 @@ namespace WallChess
             }
         }
         
-        private void OnTileAnimationCompleted()
+private void OnTileAnimationCompleted()
         {
-            Debug.Log("Tile animation completed - transitioning to PlayerTurn");
+            Debug.Log("Tile animation completed - initializing players and starting game");
+            
+            // NOW initialize players after tiles are built
+            InitializePlayerPawnSystem();
+            
+            // Initialize WallValidator with pathfinding manager (after players exist)
+            wallValidator = new WallValidator(gridSystem, this);
+
+            // Set up initial tile occupancy
+            foreach (var pawn in pawns)
+            {
+                gridSystem.SetTileOccupied(pawn.position, true);
+            }
+            
+            // IMPORTANT: Setup avatar drag controllers after avatars are created
+            if (playerController != null)
+            {
+                playerController.SetupAvatarDragControllers();
+            }
+            
+            // Set first player as active
+            SetActivePlayer(0);
+
+            if (debugMode)
+            {
+                Debug.Log("Game started in DEBUG MODE - Any pawn can be moved");
+            }
+            
+            // Transition to PlayerTurn state
             ChangeState(GameState.PlayerTurn);
-            SetActivePlayer(0); // Start with first player
+            
+            Debug.Log($"Game ready with {pawns.Count} players. Active player: {activePlayerIndex}");
         }
 
         void InitializePlayerPawnSystem()
