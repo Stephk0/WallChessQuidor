@@ -618,6 +618,20 @@ namespace WallChess.Core.States
         public StateType CurrentStateType => _currentState?.Type ?? StateType.Initialization;
         
         /// <summary>
+        /// Set performance mode for benchmarking (disables all logging)
+        /// </summary>
+        public void SetPerformanceMode(bool enabled)
+        {
+            _enableDebugLogging = !enabled;
+            _logStateTransitions = !enabled;
+            
+            if (enabled)
+            {
+                Debug.Log("[StateManager] Performance mode enabled - logging disabled");
+            }
+        }
+        
+        /// <summary>
         /// Check if in a specific state
         /// </summary>
         public bool IsInState(StateType state) => _currentState != null && _currentState.Type == state;

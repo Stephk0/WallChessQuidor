@@ -5,7 +5,8 @@
       "Bash(find:*)",
       "Bash(echo \"Backup created at: $backup_dir\")",
       "mcp__filesystem__read_multiple_files",
-      "mcp__filesystem__list_allowed_directories"
+      "mcp__filesystem__list_allowed_directories",
+      "mcp__thinking__sequentialthinking_tools"
     ],
     "deny": [],
     "ask": []
