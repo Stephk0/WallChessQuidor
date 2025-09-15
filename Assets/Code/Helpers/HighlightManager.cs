@@ -137,7 +137,20 @@ namespace WallChess
             Debug.Log($"Showing {activeHighlights.Count} valid move highlights");
         }
         
-        /// <summary>
+                /// <summary>
+        /// Update confirm highlight position (clears and recreates at new position)
+        /// Used when target moves from one valid position to another while staying in confirm zone
+        /// </summary>
+        public void UpdateConfirmHighlightPosition(Vector2Int newPosition, GridSystem gridSystem)
+        {
+            if (gridSystem == null) return;
+            
+            // Clear current highlight and show at new position
+            ClearConfirmHighlights();
+            ShowConfirmHighlight(newPosition, gridSystem);
+        }
+        
+/// <summary>
         /// Show confirm highlight at a specific position during drag operations
         /// </summary>
         public void ShowConfirmHighlight(Vector2Int position, GridSystem gridSystem)

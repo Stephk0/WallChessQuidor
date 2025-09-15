@@ -30,7 +30,8 @@ public class PieDial : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, ID
     private int snapSectors = 0; // 0 = continuous
 
     [Header("Events")] public Vector2Event OnDirectionConfirmed; // Fired when user releases beyond threshold
-    public Vector2Event OnDirectionChanged; // Fired during drag (normalized 0..1 magnitude)
+            public UnityEvent OnDirectionCancelled; // Fired when user releases below threshold
+public Vector2Event OnDirectionChanged; // Fired during drag (normalized 0..1 magnitude)
 
     [System.Serializable]
     public class Vector2Event : UnityEvent<Vector2>
@@ -94,6 +95,7 @@ public void OnPointerUp(PointerEventData eventData)
                 out localPoint))
         {
             HideIndicators();
+            OnDirectionCancelled?.Invoke();
             return;
         }
 
@@ -109,13 +111,15 @@ public void OnPointerUp(PointerEventData eventData)
             if (snapSectors > 0) finalDir = SnapDirection(dir, snapSectors);
 
             OnDirectionConfirmed?.Invoke(finalDir);
+            UnityEngine.Debug.Log($"PieDial: Move confirmed with magnitude {finalNormalizedMag:F2} >= {confirmMagnitudeNormalized:F2}");
         }
         else
         {
-            // Not enough magnitude to confirm - could add feedback here
+            // Not enough magnitude to confirm - trigger cancelled event
             UnityEngine.Debug.Log($"PieDial: Insufficient magnitude {finalNormalizedMag:F2} < {confirmMagnitudeNormalized:F2}");
+            OnDirectionCancelled?.Invoke();
         }
-
+        
         HideIndicators();
     }
 
@@ -196,4 +200,13 @@ private void HideIndicators()
         if (Application.isPlaying) CacheCenterAndRadius();
     }
 #endif
+
+
+    /// <summary>
+    /// Get the confirm magnitude threshold for external systems
+    /// </summary>
+    public float GetConfirmMagnitudeNormalized()
+    {
+        return confirmMagnitudeNormalized;
+    }
 }

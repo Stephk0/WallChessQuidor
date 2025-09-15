@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace WallChess
 {
     /// <summary>
-    /// Individual drag controller for each avatar
+    /// Individual drag controller for each avatar with simple dangle animation support
     /// </summary>
     public class AvatarDragController : MonoBehaviour
     {
@@ -14,6 +14,10 @@ namespace WallChess
         private Vector3 originalPosition;
         private Vector2Int originalGridPosition;
         private Vector2Int lastHighlightedPosition = Vector2Int.one * -1; // Track last highlighted position
+        
+        [Header("Animation")]
+        [SerializeField] private SimplePawnDangleAnimation dangleAnimation;
+        [SerializeField] private bool enableDangleAnimation = true;
         private bool wasLastPositionValid = false; // Track if last position was valid
         
         public void Initialize(PlayerControllerV2 ctrl, bool isPlayer)
@@ -27,6 +31,21 @@ namespace WallChess
             {
                 gameObject.AddComponent<BoxCollider>();
             }
+            
+            // Auto-find dangle animation if not assigned
+            if (dangleAnimation == null && enableDangleAnimation)
+            {
+                dangleAnimation = GetComponent<SimplePawnDangleAnimation>();
+                if (dangleAnimation == null)
+                {
+                    Debug.LogWarning($"SimplePawnDangleAnimation component not found on {name}. Dangle animation will be disabled.");
+                    enableDangleAnimation = false;
+                }
+                else
+                {
+                    Debug.Log($"Using Simple dangle animation for {name}");
+                }
+            }
         }
 
         void OnMouseDown()
@@ -39,7 +58,13 @@ namespace WallChess
                 return;
             }
             
-                        isDragging = true;
+            isDragging = true;
+            
+            // Start dangle animation
+            if (enableDangleAnimation && dangleAnimation != null)
+            {
+                dangleAnimation.StartDangling();
+            }
             
             // Always update to current grid-aligned position to ensure accuracy
             originalGridPosition = controller.GetAvatarPosition(isPlayerAvatar);
@@ -119,20 +144,19 @@ namespace WallChess
                 }
                 
                 isDragging = false;
+                
+                // Stop dangle animation
+                if (enableDangleAnimation && dangleAnimation != null)
+                {
+                    dangleAnimation.StopDangling();
+                }
+                
                 // Reset highlight tracking when ending drag
                 lastHighlightedPosition = Vector2Int.one * -1;
                 wasLastPositionValid = false;
             }
         }
 
-                /// <summary>
-        /// Force reset the drag controller to its initial state
-        /// Called when external events (like wall placement) should cancel any active drag
-        /// </summary>
-        /// <summary>
-        /// Force reset the drag controller to its initial state
-        /// Called when external events (like wall placement) should cancel any active drag
-        /// </summary>
         /// <summary>
         /// Force reset the drag controller to its initial state
         /// Called when external events (like wall placement) should cancel any active drag
@@ -153,6 +177,12 @@ namespace WallChess
                 
                 // Clear any highlights
                 ClearConfirmHighlights();
+                
+                // Stop dangle animation
+                if (enableDangleAnimation && dangleAnimation != null)
+                {
+                    dangleAnimation.StopDangling();
+                }
             }
             else
             {
@@ -167,7 +197,7 @@ namespace WallChess
             }
         }
 
-void ClearConfirmHighlights()
+        void ClearConfirmHighlights()
         {
             // Clear only the confirm highlights, leaving valid move highlights visible
             HighlightManager highlightManager = controller.GetHighlightManager();

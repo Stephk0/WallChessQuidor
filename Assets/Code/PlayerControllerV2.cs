@@ -14,7 +14,11 @@ namespace WallChess
         [Header("Pie Dial Control")]
         [SerializeField] private PieDial pieDial;
         [SerializeField] private bool enablePieDialControl = true;
-        [SerializeField] private float directionThreshold = 0.7f; // Minimum magnitude to register direction
+                
+        // Track pie dial confirm highlight state to avoid constant toggling
+        private bool isPieDialConfirmHighlightActive = false; // Fixed compilation issues
+        private Vector2Int currentConfirmHighlightPosition = Vector2Int.zero;
+[SerializeField] private float directionThreshold = 0.7f; // Minimum magnitude to register direction
         
         [Header("Debug")]
         public bool enableDebugLogs = true; // Fixed compilation issues
@@ -41,9 +45,10 @@ void SetupPieDialControl()
         {
             if (!enablePieDialControl || pieDial == null) return;
             
-            // Subscribe to direction confirmed event
+            // Subscribe to direction events
             pieDial.OnDirectionConfirmed.AddListener(OnPieDialDirectionConfirmed);
             pieDial.OnDirectionChanged.AddListener(OnPieDialDirectionChanged);
+            pieDial.OnDirectionCancelled.AddListener(OnPieDialCancelled);
             
             if (enableDebugLogs) Debug.Log("Pie dial control initialized");
         }
@@ -68,32 +73,112 @@ void ShowPieDialMovementPreview(Vector2 direction)
             GameObject playerAvatar = gameManager.GetPlayerAvatar();
             if (playerAvatar == null) return;
             
-            // Convert direction to grid movement
-            Vector2Int gridDirection = ConvertDirectionToGridMovement(direction);
-            if (gridDirection == Vector2Int.zero) 
+            Vector3 currentWorldPos = GetWorldPosition(currentPos);
+            
+            // If direction magnitude is too small, snap back to center and clear highlights
+            if (direction.magnitude < directionThreshold)
             {
-                // If no clear direction, move avatar back to current position
-                playerAvatar.transform.position = GetWorldPosition(currentPos);
+                playerAvatar.transform.position = currentWorldPos;
+                
+                // Clear highlight if it was active
+                if (isPieDialConfirmHighlightActive)
+                {
+                    if (highlightManager != null)
+                    {
+                        highlightManager.ClearConfirmHighlights();
+                    }
+                    isPieDialConfirmHighlightActive = false;
+                    currentConfirmHighlightPosition = Vector2Int.zero;
+                }
                 return;
             }
             
-            Vector2Int targetPos = currentPos + gridDirection;
+            // SMOOTH CIRCULAR MOVEMENT - Use raw direction for smooth preview
+            float tileSpacing = gameManager.tileSize + gameManager.tileGap;
             
-            // Move player avatar to show preview based on direction magnitude
-            Vector3 currentWorldPos = GetWorldPosition(currentPos);
-            Vector3 targetWorldPos = GetWorldPosition(targetPos);
+            // Create smooth circular movement - direction is already normalized by magnitude in PieDial
+            // The direction vector contains both direction and magnitude (0-1 range from PieDial)
+            Vector3 smoothOffset = new Vector3(direction.x, direction.y, 0f) * tileSpacing;
+            Vector3 smoothPreviewPos = currentWorldPos + smoothOffset;
             
-            // Use direction magnitude to interpolate between current and target position
-            float lerpFactor = Mathf.Clamp01(direction.magnitude);
-            Vector3 previewPos = Vector3.Lerp(currentWorldPos, targetWorldPos, lerpFactor);
+            // Move pawn to smooth circular position
+            playerAvatar.transform.position = smoothPreviewPos;
             
-            playerAvatar.transform.position = previewPos;
+            // SEPARATE LOGIC: Only for highlighting determine discrete target
+            // This doesn't affect the smooth movement, only where we show the highlight
+            Vector2Int targetGridPos = Vector2Int.zero;
+            bool hasValidTarget = false;
+            
+            // Only calculate grid target when we're close to confirm threshold
+            float pieDialConfirmThreshold = pieDial != null ? pieDial.GetConfirmMagnitudeNormalized() : 1.0f;
+            
+            if (direction.magnitude >= (pieDialConfirmThreshold * 0.8f)) // Start showing hint at 80% of confirm
+            {
+                // Determine which grid position this direction points toward
+                Vector2Int gridDirection = ConvertDirectionToGridMovement(direction);
+                if (gridDirection != Vector2Int.zero)
+                {
+                    targetGridPos = currentPos + gridDirection;
+                    hasValidTarget = IsValidMove(currentPos, targetGridPos);
+                }
+            }
+            
+            // Handle confirm highlighting
+            bool shouldShowConfirmHighlight = direction.magnitude >= pieDialConfirmThreshold && hasValidTarget;
+            
+            if (shouldShowConfirmHighlight)
+            {
+                // We're in confirm zone with valid target
+                if (!isPieDialConfirmHighlightActive || currentConfirmHighlightPosition != targetGridPos)
+                {
+                    // Show or update highlight
+                    if (highlightManager != null && gridSystem != null)
+                    {
+                        if (isPieDialConfirmHighlightActive)
+                        {
+                            highlightManager.UpdateConfirmHighlightPosition(targetGridPos, gridSystem);
+                        }
+                        else
+                        {
+                            highlightManager.ShowConfirmHighlight(targetGridPos, gridSystem);
+                        }
+                    }
+                    isPieDialConfirmHighlightActive = true;
+                    currentConfirmHighlightPosition = targetGridPos;
+                    
+                    if (enableDebugLogs)
+                    {
+                        Debug.Log($"Pie dial confirm highlight at {targetGridPos} (smooth pos: {smoothPreviewPos})");
+                    }
+                }
+            }
+            else if (isPieDialConfirmHighlightActive)
+            {
+                // Exit confirm zone - clear highlight
+                if (highlightManager != null)
+                {
+                    highlightManager.ClearConfirmHighlights();
+                }
+                isPieDialConfirmHighlightActive = false;
+                currentConfirmHighlightPosition = Vector2Int.zero;
+                
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"Pie dial exited confirm zone - smooth movement continues");
+                }
+            }
         }
         
 
 
 /// <summary>
         /// Call this when the turn changes to update PieDial position to active player
+        /// </summary>
+/// <summary>
+        /// Call this when the turn changes to enable/disable PieDial based on active player
+        /// </summary>
+/// <summary>
+        /// Call this when the turn changes to enable/disable PieDial based on active player
         /// </summary>
 /// <summary>
         /// Call this when the turn changes to enable/disable PieDial based on active player
@@ -106,9 +191,17 @@ void ShowPieDialMovementPreview(Vector2 direction)
                 bool isPlayerTurn = CanMoveAvatar(true);
                 pieDial.gameObject.SetActive(isPlayerTurn);
                 
+                // Reset highlight state on turn change to ensure clean state
+                if (highlightManager != null)
+                {
+                    highlightManager.ClearConfirmHighlights();
+                }
+                isPieDialConfirmHighlightActive = false;
+                currentConfirmHighlightPosition = Vector2Int.zero;
+                
                 if (enableDebugLogs)
                 {
-                    Debug.Log($"PieDial updated for turn change. Active: {isPlayerTurn}");
+                    Debug.Log($"PieDial updated for turn change. Active: {isPlayerTurn}, highlight state reset");
                 }
             }
         }
@@ -122,53 +215,128 @@ void OnPieDialDirectionConfirmed(Vector2 direction)
             // Only process if it's the current player's turn
             if (!CanMoveAvatar(true)) return;
             
-            // Reset player avatar to actual position before confirming move
-            GameObject playerAvatar = gameManager.GetPlayerAvatar();
+            // Get current player position and avatar reference
             Vector2Int playerCurrentPos = GetAvatarPosition(true);
-            if (playerAvatar != null)
+            GameObject playerAvatar = gameManager.GetPlayerAvatar();
+            
+            // Always clear confirm highlights and reset state when confirming
+            if (highlightManager != null)
             {
-                playerAvatar.transform.position = GetWorldPosition(playerCurrentPos);
+                highlightManager.ClearConfirmHighlights();
             }
+            isPieDialConfirmHighlightActive = false;
+            currentConfirmHighlightPosition = Vector2Int.zero;
             
             // Convert direction to grid movement
             Vector2Int gridDirection = ConvertDirectionToGridMovement(direction);
-            if (gridDirection == Vector2Int.zero) return;
-            
-            // Get current player position
-            Vector2Int currentPos = GetAvatarPosition(true);
-            Vector2Int targetPos = currentPos + gridDirection;
-            
-            // Validate and execute move
-            if (IsValidMove(currentPos, targetPos))
+            if (gridDirection == Vector2Int.zero)
             {
-                MoveAvatar(true, targetPos);
+                // No clear direction - snap back to current position
+                if (playerAvatar != null)
+                {
+                    playerAvatar.transform.position = GetWorldPosition(playerCurrentPos);
+                }
                 
                 if (enableDebugLogs)
                 {
-                    Debug.Log($"Pie dial move executed: {currentPos} -> {targetPos} (direction: {direction})");
+                    Debug.Log($"Pie dial confirmed but no clear direction - player snapped back to {playerCurrentPos}");
+                }
+                return;
+            }
+            
+            Vector2Int targetPos = playerCurrentPos + gridDirection;
+            bool moveExecuted = false;
+            
+            // Validate and execute move
+            if (IsValidMove(playerCurrentPos, targetPos))
+            {
+                MoveAvatar(true, targetPos);
+                moveExecuted = true;
+                
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"Pie dial move executed: {playerCurrentPos} -> {targetPos} (direction: {direction})");
                 }
             }
             else
             {
                 // Try jump move if direct move is invalid
-                List<Vector2Int> validMoves = GetValidMoves(currentPos);
-                Vector2Int bestMove = FindBestMoveInDirection(validMoves, currentPos, gridDirection);
+                List<Vector2Int> validMoves = GetValidMoves(playerCurrentPos);
+                Vector2Int bestMove = FindBestMoveInDirection(validMoves, playerCurrentPos, gridDirection);
                 
                 if (bestMove != Vector2Int.zero)
                 {
                     MoveAvatar(true, bestMove);
+                    moveExecuted = true;
                     
                     if (enableDebugLogs)
                     {
-                        Debug.Log($"Pie dial jump move executed: {currentPos} -> {bestMove} (direction: {direction})");
+                        Debug.Log($"Pie dial jump move executed: {playerCurrentPos} -> {bestMove} (direction: {direction})");
                     }
                 }
-                else if (enableDebugLogs)
+            }
+            
+            // If no move was executed, snap player avatar back to current position
+            if (!moveExecuted)
+            {
+                if (playerAvatar != null)
                 {
-                    Debug.Log($"No valid move found for pie dial direction: {direction}");
+                    playerAvatar.transform.position = GetWorldPosition(playerCurrentPos);
+                }
+                
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"Pie dial confirmed but no valid move found - player snapped back to starting position {playerCurrentPos}");
                 }
             }
         }
+
+/// <summary>
+        /// Called when pie dial is released without sufficient magnitude for confirmation
+        /// </summary>
+/// <summary>
+        /// Called when pie dial is released without sufficient magnitude for confirmation
+        /// </summary>
+/// <summary>
+        /// Called when pie dial is released without sufficient magnitude for confirmation
+        /// </summary>
+/// <summary>
+        /// Called when pie dial is released without sufficient magnitude for confirmation
+        /// </summary>
+        public void OnPieDialCancelled()
+        {
+            if (!enablePieDialControl) return;
+            
+            // Snap player avatar back to current position
+            GameObject playerAvatar = gameManager.GetPlayerAvatar();
+            Vector2Int playerCurrentPos = GetAvatarPosition(true);
+            if (playerAvatar != null)
+            {
+                Vector3 expectedPos = GetWorldPosition(playerCurrentPos);
+                playerAvatar.transform.position = expectedPos;
+                
+                if (enableDebugLogs)
+                {
+                    Debug.Log($"Pie dial cancelled - player snapped back to starting position {playerCurrentPos}");
+                }
+            }
+            
+            // Clear any confirm highlights and reset state
+            if (highlightManager != null)
+            {
+                highlightManager.ClearConfirmHighlights();
+            }
+            isPieDialConfirmHighlightActive = false;
+            currentConfirmHighlightPosition = Vector2Int.zero;
+        }
+
+/// <summary>
+        /// Failsafe method called whenever pie dial interaction ends
+        /// Ensures player always snaps back to starting position if not moved
+        /// </summary>
+
+
+
         
         Vector2Int ConvertDirectionToGridMovement(Vector2 direction)
         {
@@ -236,6 +404,7 @@ void OnDestroy()
             {
                 pieDial.OnDirectionConfirmed.RemoveListener(OnPieDialDirectionConfirmed);
                 pieDial.OnDirectionChanged.RemoveListener(OnPieDialDirectionChanged);
+                pieDial.OnDirectionCancelled.RemoveListener(OnPieDialCancelled);
             }
         }
         
