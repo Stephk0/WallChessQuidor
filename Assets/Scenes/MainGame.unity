@@ -861,7 +861,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   pieDial: {fileID: 2038231429}
   enablePieDialControl: 1
-  directionThreshold: 0.7
+  directionThreshold: 0
   enableDebugLogs: 0
 --- !u!114 &571342509
 MonoBehaviour:
@@ -1619,7 +1619,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 6 Walls
+  m_text: 6 W
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -1713,7 +1713,7 @@ GameObject:
   - component: {fileID: 869484416}
   - component: {fileID: 869484415}
   m_Layer: 5
-  m_Name: TopARPanel_002
+  m_Name: TopAR_Vertical_Panel
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -2338,7 +2338,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
   m_AnchoredPosition: {x: -230.8, y: -553}
-  m_SizeDelta: {x: 447.4, y: 212.7}
+  m_SizeDelta: {x: 290.48, y: 212.7}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &988975899
 MonoBehaviour:
@@ -7857,7 +7857,7 @@ GameObject:
   - component: {fileID: 1628881391}
   - component: {fileID: 1628881392}
   m_Layer: 5
-  m_Name: TopARPanel
+  m_Name: TopAR_Horizontal_Panel
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -13554,7 +13554,7 @@ MonoBehaviour:
   dotRect: {fileID: 58627269}
   rotateCompass: 1
   clampDotToRadius: 1
-  confirmMagnitudeNormalized: 1
+  confirmMagnitudeNormalized: 0.5
   snapSectors: 0
   OnDirectionConfirmed:
     m_PersistentCalls:
