@@ -17,6 +17,7 @@ namespace WallChess
     /// - M: Test smooth rotation on existing walls
     /// - N: Test smooth translation on place (Z-axis) on existing walls
     /// - L: Test smooth slide translation on existing walls
+     /// - U: Validate preview materials assignment
     /// 
     /// Visualization Colors:
     /// - Green: Valid path tiles
@@ -129,6 +130,7 @@ namespace WallChess
             }
 
             ValidatePrefabSetup();
+            ValidatePreviewMaterials();
 
             validator = new WallValidator(gridSystem, gameManager);
                         visuals = new WallVisuals(GetActivePrefab(), GetActiveMaterial(), validPreviewColor, invalidPreviewColor, placingPreviewColor);
@@ -155,7 +157,72 @@ namespace WallChess
             return new GridCoordinateConverter(settings.TileSpacing, settings.gridSize, alignment);
         }
 
-        private void ValidatePrefabSetup()
+        
+        /// <summary>
+        /// Validates that preview materials are properly assigned and logs helpful debug info
+        /// </summary>
+private void ValidatePreviewMaterials()
+        {
+            Debug.Log("=== PREVIEW MATERIALS VALIDATION ===");
+            
+            // Check wall prefabs for WallPrefabController
+            if (!boxForPrefabDebugMode && wallPrefabs != null && wallPrefabs.Count > 0)
+            {
+                int prefabsWithController = 0;
+                foreach (var prefab in wallPrefabs)
+                {
+                    if (prefab != null)
+                    {
+                        var controller = prefab.GetComponent<WallPrefabController>();
+                        if (controller != null)
+                        {
+                            prefabsWithController++;
+                            Debug.Log($"Prefab {prefab.name} has WallPrefabController with {controller.GetRenderers()?.Length ?? 0} renderers assigned");
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"Prefab {prefab.name} does not have WallPrefabController! Add this component for proper preview material handling.");
+                        }
+                    }
+                }
+                Debug.Log($"Wall prefabs with WallPrefabController: {prefabsWithController}/{wallPrefabs.Count}");
+            }
+            
+            // Check preview materials assignment
+            if (validPreviewMaterial == null)
+            {
+                Debug.LogWarning("WallManager: Valid Preview Material is not assigned! Wall placement preview may not show correct valid state.");
+            }
+            else
+            {
+                Debug.Log($"Valid Preview Material: {validPreviewMaterial.name}");
+            }
+            
+            if (invalidPreviewMaterial == null)
+            {
+                Debug.LogWarning("WallManager: Invalid Preview Material is not assigned! Wall placement preview may not show correct invalid state.");
+            }
+            else
+            {
+                Debug.Log($"Invalid Preview Material: {invalidPreviewMaterial.name}");
+            }
+            
+            Debug.Log($"Valid Preview Color: {validPreviewColor}");
+            Debug.Log($"Invalid Preview Color: {invalidPreviewColor}");
+            Debug.Log($"Placing Preview Color: {placingPreviewColor}");
+            
+            // Provide setup recommendations
+            if (validPreviewMaterial == null || invalidPreviewMaterial == null)
+            {
+                Debug.Log("SETUP RECOMMENDATION: Assign Valid and Invalid Preview Materials in WallManager inspector for best results.");
+            }
+            
+            if (!boxForPrefabDebugMode && wallPrefabs != null && wallPrefabs.Count > 0)
+            {
+                Debug.Log("SETUP RECOMMENDATION: Add WallPrefabController component to your wall prefabs and assign mesh renderers for proper preview material handling.");
+            }
+        }
+private void ValidatePrefabSetup()
         {
             if (boxForPrefabDebugMode)
             {
@@ -592,6 +659,7 @@ namespace WallChess
             if (Input.GetKeyDown(KeyCode.B)) validator.DebugPrintAllPawnPaths();
             
             if (Input.GetKeyDown(KeyCode.P)) TogglePathfindingVisualization();
+            if (Input.GetKeyDown(KeyCode.U)) ValidatePreviewMaterials();
             if (Input.GetKeyDown(KeyCode.O)) CyclePathfindingDebugMode();
             if (Input.GetKeyDown(KeyCode.R)) RefreshPathfindingVisualization();
             if (Input.GetKeyDown(KeyCode.M)) TestSmoothRotation();

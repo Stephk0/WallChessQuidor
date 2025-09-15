@@ -269,6 +269,9 @@ public void Tick()
             {
                 wallManager.AddManagedWall(wallObj);
                 
+                // Clear the preview immediately after successful placement
+                visuals.CleanupPreview();
+                
                 // Reset any active avatar drag states when wall is placed
                 var playerController = gameManager.GetPlayerController();
                 if (playerController != null)

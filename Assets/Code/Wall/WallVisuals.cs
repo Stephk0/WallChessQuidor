@@ -28,7 +28,7 @@ namespace WallChess
             wallManager = manager;
         }
 
-        public void EnsurePreview()
+public void EnsurePreview()
         {
             if (preview != null) return;
             
@@ -39,33 +39,71 @@ namespace WallChess
                 preview = GameObject.Instantiate(prefab);
                 preview.name = "WallPreview_Prefab";
                 
-                previewRenderer = preview.GetComponent<Renderer>();
-                if (previewRenderer != null)
+                // Try to get WallPrefabController for proper material assignment
+                var prefabController = preview.GetComponent<WallPrefabController>();
+                if (prefabController != null)
                 {
-                    if (mat != null)
+                    if (prefabController.ValidateRenderers())
                     {
-                        previewRenderer.material = mat;
+                        previewRenderer = prefabController.GetFirstRenderer();
                     }
-                    previewRenderer.material.color = placing;
+                    else
+                    {
+                        Debug.LogWarning($"WallVisuals: WallPrefabController found but no valid renderers assigned on {prefab.name}");
+                    }
+                }
+                else
+                {
+                    // Fallback: look for any renderer component
+                    previewRenderer = preview.GetComponent<Renderer>();
+                    if (previewRenderer == null)
+                    {
+                        previewRenderer = preview.GetComponentInChildren<Renderer>();
+                    }
+                    
+                    if (previewRenderer == null)
+                    {
+                        Debug.LogError($"WallVisuals: Wall prefab {prefab.name} has no WallPrefabController and no Renderer components! Add WallPrefabController or ensure prefab has renderers.");
+                        // Don't create mesh renderers automatically - this should be set up in the prefab
+                        return;
+                    }
                 }
             }
             else
             {
-                // Debug mode: Create single preview cube (segments will be created on placement)
+                // Debug mode: Create single preview cube
                 preview = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 preview.name = "WallPreview_Debug";
-                
                 previewRenderer = preview.GetComponent<Renderer>();
-                if (previewRenderer != null)
+            }
+            
+            // Setup the preview material only for debug mode or when no prefab controller exists
+            if (previewRenderer != null && (wallManager == null || wallManager.IsDebugMode() || preview.GetComponent<WallPrefabController>() == null))
+            {
+                // Only apply initial material setup for debug mode or simple prefabs without controller
+                if (wallManager != null)
                 {
-                    if (mat != null)
+                    Material placingMaterial = wallManager.GetValidPreviewMaterial();
+                    if (placingMaterial != null)
+                    {
+                        previewRenderer.sharedMaterial = placingMaterial;
+                    }
+                    else if (mat != null)
                     {
                         previewRenderer.material = mat;
+                        previewRenderer.material.color = placing;
                     }
-                    previewRenderer.material.color = placing;
+                    else
+                    {
+                        // Create a new material with the placing color
+                        Material defaultMaterial = new Material(Shader.Find("Standard"));
+                        defaultMaterial.color = placing;
+                        previewRenderer.material = defaultMaterial;
+                    }
                 }
             }
             
+            // Remove collider to prevent interference
             var col = preview.GetComponent<Collider>();
             if (col) WallState.SafeDestroy(col);
         }
@@ -91,30 +129,75 @@ namespace WallChess
             if (preview) preview.SetActive(false); 
         }
 
-        private void UpdatePreviewMaterial(bool isValid)
+private void UpdatePreviewMaterial(bool isValid)
         {
-            if (previewRenderer == null || wallManager == null) return;
+            if (preview == null || wallManager == null) return;
             
-            Material targetMaterial = isValid ? wallManager.GetValidPreviewMaterial() : wallManager.GetInvalidPreviewMaterial();
-            
-            if (targetMaterial != null)
+            // Check if preview has WallPrefabController for advanced material handling
+            var prefabController = preview.GetComponent<WallPrefabController>();
+            if (prefabController != null)
             {
-                previewRenderer.sharedMaterial = targetMaterial; // Use shared, not instanced
+                // Use WallPrefabController for material assignment
+                Material targetMaterial = isValid ? wallManager.GetValidPreviewMaterial() : wallManager.GetInvalidPreviewMaterial();
+                
+                if (targetMaterial != null)
+                {
+                    prefabController.SetPreviewMaterial(targetMaterial);
+                }
+                else
+                {
+                    // Fallback to color-based preview when materials aren't assigned
+                    Color targetColor = isValid ? ok : bad;
+                    prefabController.SetPreviewColor(targetColor);
+                }
+                return;
+            }
+            
+            // Fallback: Direct renderer material assignment for debug mode or simple prefabs
+            if (previewRenderer == null) return;
+            
+            Material previewMaterial = isValid ? wallManager.GetValidPreviewMaterial() : wallManager.GetInvalidPreviewMaterial();
+            
+            if (previewMaterial != null)
+            {
+                previewRenderer.sharedMaterial = previewMaterial; // Use shared, not instanced
             }
             else
             {
-                // Fallback to color-based preview if materials aren't assigned
+                // Fallback: Create or reuse a material instance with appropriate color
                 if (previewRenderer.material != null)
                 {
-                    previewRenderer.material.color = isValid ? ok : bad;
+                    Material material = previewRenderer.material;
+                    Color targetColor = isValid ? ok : bad;
+                    
+                    // Only change color if it's different to avoid unnecessary updates
+                    if (material.color != targetColor)
+                    {
+                        material.color = targetColor;
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning("WallVisuals: Preview renderer has no material assigned!");
                 }
             }
         }
 
-        public void CleanupPreview()
+public void CleanupPreview()
         {
-            if (preview) WallState.SafeDestroy(preview);
-            preview = null; previewRenderer = null;
+            if (preview != null)
+            {
+                // Restore original materials if using WallPrefabController
+                var prefabController = preview.GetComponent<WallPrefabController>();
+                if (prefabController != null && prefabController.IsInPreviewMode)
+                {
+                    prefabController.RestoreOriginalMaterials();
+                }
+                
+                WallState.SafeDestroy(preview);
+            }
+            preview = null; 
+            previewRenderer = null;
         }
 
         public GameObject CreateWall(GapDetector.WallInfo w, WallState state)
@@ -172,11 +255,25 @@ namespace WallChess
             go.transform.localScale = scale;
             go.tag = "Wall";
 
-            var r = go.GetComponent<Renderer>();
-            if (r != null)
+            // Check if the wall has WallPrefabController and restore original materials
+            var prefabController = go.GetComponent<WallPrefabController>();
+            if (prefabController != null)
             {
-                if (mat != null) r.material = mat;
-                else if (prefabToUse == null) r.material.color = Color.yellow; // Only set color if using primitive
+                // Ensure original materials are restored for placed walls
+                if (prefabController.IsInPreviewMode)
+                {
+                    prefabController.RestoreOriginalMaterials();
+                }
+            }
+            else
+            {
+                // Fallback: Direct renderer material assignment for simple prefabs
+                var r = go.GetComponent<Renderer>();
+                if (r != null)
+                {
+                    if (mat != null) r.material = mat;
+                    else if (prefabToUse == null) r.material.color = Color.yellow; // Only set color if using primitive
+                }
             }
             
             // Determine orientation from rotation and apply smooth translation animation
