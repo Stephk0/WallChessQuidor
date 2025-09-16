@@ -1,5 +1,4 @@
 using UnityEngine;
-using System.Collections.Generic;
 
 namespace WallChess
 {
@@ -8,152 +7,48 @@ namespace WallChess
     /// </summary>
     public class AvatarDragController : MonoBehaviour
     {
+        #region Private Fields
         private PlayerControllerV2 controller;
         private bool isPlayerAvatar;
         private bool isDragging = false;
         private Vector3 originalPosition;
         private Vector2Int originalGridPosition;
-        private Vector2Int lastHighlightedPosition = Vector2Int.one * -1; // Track last highlighted position
+        private const int INVALID_POSITION = -1;
+        private Vector2Int lastHighlightedPosition = Vector2Int.one * INVALID_POSITION;
+        private bool wasLastPositionValid = false;
         
+        // Cached objects to avoid allocations
+        private Camera cachedCamera;
+        private Plane gamePlane = new Plane(Vector3.back, Vector3.zero);
+        private const float PLANE_Z_POSITION = 0f;
+        private const float MIN_RAY_DIRECTION_Z = 0.001f;
+        #endregion
+        
+        #region Animation Settings
         [Header("Animation")]
         [SerializeField] private SimplePawnDangleAnimation dangleAnimation;
         [SerializeField] private bool enableDangleAnimation = true;
-        private bool wasLastPositionValid = false; // Track if last position was valid
+        #endregion
         
+        #region Public Methods
         public void Initialize(PlayerControllerV2 ctrl, bool isPlayer)
         {
             controller = ctrl;
             isPlayerAvatar = isPlayer;
             originalPosition = transform.position;
             
+            // Cache camera reference
+            cachedCamera = controller.GetMainCamera();
+            
             // Ensure the object has a collider for mouse detection
             if (GetComponent<Collider>() == null)
-            {
                 gameObject.AddComponent<BoxCollider>();
-            }
             
             // Auto-find dangle animation if not assigned
             if (dangleAnimation == null && enableDangleAnimation)
             {
                 dangleAnimation = GetComponent<SimplePawnDangleAnimation>();
-                if (dangleAnimation == null)
-                {
-                    Debug.LogWarning($"SimplePawnDangleAnimation component not found on {name}. Dangle animation will be disabled.");
-                    enableDangleAnimation = false;
-                }
-                else
-                {
-                    Debug.Log($"Using Simple dangle animation for {name}");
-                }
-            }
-        }
-
-        void OnMouseDown()
-        {
-            if (controller == null) return;
-            
-            if (!controller.CanMoveAvatar(isPlayerAvatar))
-            {
-                Debug.Log($"Cannot move {(isPlayerAvatar ? "player" : "opponent")}: not their turn");
-                return;
-            }
-            
-            isDragging = true;
-            
-            // Start dangle animation
-            if (enableDangleAnimation && dangleAnimation != null)
-            {
-                dangleAnimation.StartDangling();
-            }
-            
-            // Always update to current grid-aligned position to ensure accuracy
-            originalGridPosition = controller.GetAvatarPosition(isPlayerAvatar);
-            originalPosition = controller.GridToWorldPosition(originalGridPosition);
-            
-            // Ensure avatar is at correct grid position before dragging starts
-            transform.position = originalPosition;
-            
-            // Reset highlight tracking when starting drag
-            lastHighlightedPosition = Vector2Int.one * -1;
-            wasLastPositionValid = false;
-        }
-
-        void OnMouseDrag()
-        {
-            if (isDragging && controller.CanMoveAvatar(isPlayerAvatar))
-            {
-                Vector3 mouseWorldPos = GetMouseWorldPosition();
-                transform.position = mouseWorldPos;
-                
-                Vector2Int targetGridPos = controller.WorldToGridPosition(mouseWorldPos);
-                bool isValidMove = controller.IsValidMove(originalGridPosition, targetGridPos);
-                
-                // Only update highlights when position or validity changes
-                if (targetGridPos != lastHighlightedPosition || isValidMove != wasLastPositionValid)
-                {
-                    HighlightManager highlightManager = controller.GetHighlightManager();
-                    if (highlightManager != null)
-                    {
-                        if (isValidMove)
-                        {
-                            // Show confirm highlight for valid move
-                            highlightManager.ShowConfirmHighlight(targetGridPos, controller.GetGridSystem());
-                        }
-                        else
-                        {
-                            // Clear confirm highlight for invalid move
-                            highlightManager.ClearConfirmHighlights();
-                        }
-                    }
-                    
-                    // Update tracking variables
-                    lastHighlightedPosition = targetGridPos;
-                    wasLastPositionValid = isValidMove;
-                }
-            }
-        }
-
-        void OnMouseUp()
-        {
-            if (isDragging)
-            {
-                // Clear only confirm highlights (valid move highlights stay visible)
-                ClearConfirmHighlights();
-                
-                Vector3 mouseWorldPos = GetMouseWorldPosition();
-                Vector2Int targetGridPos = controller.WorldToGridPosition(mouseWorldPos);
-                
-                if (controller.IsValidMove(originalGridPosition, targetGridPos))
-                {
-                    // Snap to grid position
-                    Vector3 snapPosition = controller.GridToWorldPosition(targetGridPos);
-                    transform.position = snapPosition;
-                    
-                    // Execute the move through the controller
-                    controller.MoveAvatar(isPlayerAvatar, targetGridPos);
-                    
-                    string avatarType = isPlayerAvatar ? "player" : "opponent";
-                    Debug.Log($"{avatarType} moved to: {targetGridPos}");
-                }
-                else
-                {
-                    // Invalid move - return to original position
-                    transform.position = originalPosition;
-                    string avatarType = isPlayerAvatar ? "player" : "opponent";
-                    Debug.Log($"Invalid move for {avatarType} from {originalGridPosition} to {targetGridPos}");
-                }
-                
-                isDragging = false;
-                
-                // Stop dangle animation
-                if (enableDangleAnimation && dangleAnimation != null)
-                {
-                    dangleAnimation.StopDangling();
-                }
-                
-                // Reset highlight tracking when ending drag
-                lastHighlightedPosition = Vector2Int.one * -1;
-                wasLastPositionValid = false;
+                enableDangleAnimation = dangleAnimation != null;
             }
         }
 
@@ -165,41 +60,129 @@ namespace WallChess
         {
             if (isDragging)
             {
-                Debug.Log($"ForceReset: Resetting {(isPlayerAvatar ? "player" : "opponent")} drag controller");
-                
-                // Return avatar to original position
                 transform.position = originalPosition;
-                
-                // Clear all drag state
-                isDragging = false;
-                lastHighlightedPosition = Vector2Int.one * -1;
-                wasLastPositionValid = false;
-                
-                // Clear any highlights
+                EndDragging();
                 ClearConfirmHighlights();
-                
-                // Stop dangle animation
-                if (enableDangleAnimation && dangleAnimation != null)
-                {
-                    dangleAnimation.StopDangling();
-                }
             }
             else
             {
-                // Even if not dragging, update original position to current grid position
-                // This ensures the position is always in sync with the actual pawn position
-                if (controller != null)
-                {
-                    Vector2Int currentGridPos = controller.GetAvatarPosition(isPlayerAvatar);
-                    originalPosition = controller.GridToWorldPosition(currentGridPos);
-                    transform.position = originalPosition;
-                }
+                SyncToGridPosition();
+            }
+        }
+        #endregion
+        
+        #region Unity Mouse Events
+        void OnMouseDown()
+        {
+            if (controller == null || !controller.CanMoveAvatar(isPlayerAvatar)) return;
+            
+            isDragging = true;
+            
+            if (enableDangleAnimation && dangleAnimation != null)
+                dangleAnimation.StartDangling();
+            
+            originalGridPosition = controller.GetAvatarPosition(isPlayerAvatar);
+            originalPosition = controller.GridToWorldPosition(originalGridPosition);
+            transform.position = originalPosition;
+            
+            ResetHighlightTracking();
+        }
+
+        void OnMouseDrag()
+        {
+            if (!isDragging || !controller.CanMoveAvatar(isPlayerAvatar)) return;
+            
+            Vector3 mouseWorldPos = GetMouseWorldPosition();
+            transform.position = mouseWorldPos;
+            
+            Vector2Int targetGridPos = controller.WorldToGridPosition(mouseWorldPos);
+            bool isValidMove = controller.IsValidMove(originalGridPosition, targetGridPos);
+            
+            if (ShouldUpdateHighlights(targetGridPos, isValidMove))
+            {
+                UpdateMoveHighlights(targetGridPos, isValidMove);
+                lastHighlightedPosition = targetGridPos;
+                wasLastPositionValid = isValidMove;
             }
         }
 
-        void ClearConfirmHighlights()
+        void OnMouseUp()
         {
-            // Clear only the confirm highlights, leaving valid move highlights visible
+            if (!isDragging) return;
+            
+            ClearConfirmHighlights();
+            
+            Vector3 mouseWorldPos = GetMouseWorldPosition();
+            Vector2Int targetGridPos = controller.WorldToGridPosition(mouseWorldPos);
+            
+            if (controller.IsValidMove(originalGridPosition, targetGridPos))
+            {
+                ExecuteValidMove(targetGridPos);
+            }
+            else
+            {
+                ExecuteInvalidMove();
+            }
+            
+            EndDragging();
+        }
+        #endregion
+        
+        #region Private Helper Methods
+        private bool ShouldUpdateHighlights(Vector2Int targetPos, bool isValid)
+        {
+            return targetPos != lastHighlightedPosition || isValid != wasLastPositionValid;
+        }
+        
+        private void UpdateMoveHighlights(Vector2Int targetPos, bool isValid)
+        {
+            HighlightManager highlightManager = controller.GetHighlightManager();
+            if (highlightManager == null) return;
+            
+            if (isValid)
+                highlightManager.ShowConfirmHighlight(targetPos, controller.GetGridSystem());
+            else
+                highlightManager.ClearConfirmHighlights();
+        }
+        
+        private void ResetHighlightTracking()
+        {
+            lastHighlightedPosition = Vector2Int.one * INVALID_POSITION;
+            wasLastPositionValid = false;
+        }
+
+        private void ExecuteValidMove(Vector2Int targetGridPos)
+        {
+            Vector3 snapPosition = controller.GridToWorldPosition(targetGridPos);
+            transform.position = snapPosition;
+            controller.MoveAvatar(isPlayerAvatar, targetGridPos);
+        }
+        
+        private void ExecuteInvalidMove()
+        {
+            transform.position = originalPosition;
+        }
+        
+        private void EndDragging()
+        {
+            isDragging = false;
+            ResetHighlightTracking();
+            
+            if (enableDangleAnimation && dangleAnimation != null)
+                dangleAnimation.StopDangling();
+        }
+        
+        private void SyncToGridPosition()
+        {
+            if (controller == null) return;
+            
+            Vector2Int currentGridPos = controller.GetAvatarPosition(isPlayerAvatar);
+            originalPosition = controller.GridToWorldPosition(currentGridPos);
+            transform.position = originalPosition;
+        }
+
+        private void ClearConfirmHighlights()
+        {
             HighlightManager highlightManager = controller.GetHighlightManager();
             if (highlightManager != null)
             {
@@ -207,13 +190,10 @@ namespace WallChess
             }
         }
 
-        Vector3 GetMouseWorldPosition()
+        private Vector3 GetMouseWorldPosition()
         {
             Vector3 mouseScreenPos = Input.mousePosition;
-            Ray cameraRay = controller.GetMainCamera().ScreenPointToRay(mouseScreenPos);
-            
-            // Create a plane at Z=0 position, facing towards the camera
-            Plane gamePlane = new Plane(Vector3.back, new Vector3(0, 0, 0));
+            Ray cameraRay = cachedCamera.ScreenPointToRay(mouseScreenPos);
             
             float intersectionDistance;
             if (gamePlane.Raycast(cameraRay, out intersectionDistance))
@@ -222,13 +202,14 @@ namespace WallChess
             }
             
             // Fallback: Project ray to Z=0 plane mathematically
-            if (Mathf.Abs(cameraRay.direction.z) > 0.001f)
+            if (Mathf.Abs(cameraRay.direction.z) > MIN_RAY_DIRECTION_Z)
             {
-                float t = (0f - cameraRay.origin.z) / cameraRay.direction.z;
+                float t = (PLANE_Z_POSITION - cameraRay.origin.z) / cameraRay.direction.z;
                 return cameraRay.origin + cameraRay.direction * t;
             }
             
-            return new Vector3(cameraRay.origin.x, cameraRay.origin.y, 0f);
+            return new Vector3(cameraRay.origin.x, cameraRay.origin.y, PLANE_Z_POSITION);
         }
+        #endregion
     }
 }
