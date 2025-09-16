@@ -704,6 +704,7 @@ GameObject:
   - component: {fileID: 571342507}
   - component: {fileID: 571342509}
   - component: {fileID: 571342510}
+  - component: {fileID: 571342511}
   m_Layer: 0
   m_Name: WallChessGameManager
   m_TagString: Untagged
@@ -738,22 +739,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f0e3a4c70cda40143a8bc76c1cecedf6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gridSize: 7
-  tileSize: 1
-  tileGap: 0.2
-  wallsPerPlayer: 9
-  numberOfPlayers: 2
-  debugMode: 0
-  wallThickness: 0.4
-  wallHeight: 1
-  tilePrefab: {fileID: 7058676055335310071, guid: 9aa85dc79c86b1d47aff6471ce4495e3, type: 3}
-  playerPrefabs:
-  - {fileID: 4779446578767639209, guid: cda10330e64945e41baaf198e86952e4, type: 3}
-  - {fileID: 4779446578767639209, guid: f575019552a96af43bd9d7d6ecce35da, type: 3}
-  wallPrefab: {fileID: 0}
-  highlightPrefab: {fileID: 150230146685571070, guid: 2166a8fc1915b104db380a9ea7a45d15, type: 3}
-  highlightConfirmPrefab: {fileID: 150230146685571070, guid: 21c5ca73fed6db24e85ef354f6298196, type: 3}
-  wallPreviewPrefab: {fileID: 0}
+  gameSettings: {fileID: 11400000, guid: b89325b834a98134db67ac264db15370, type: 2}
+  gridSettings: {fileID: 11400000, guid: d238c322072093b4aa69d9cf9b883161, type: 2}
+  prefabReferences: {fileID: 11400000, guid: dbc75cb73c62365498fc8ee21ca9edee, type: 2}
+  debugSettings: {fileID: 11400000, guid: 7bdb504eabc4e1945906ad7b7fcfde6f, type: 2}
   currentState: 0
   currentAction: 0
   pawns: []
@@ -1104,6 +1093,22 @@ MonoBehaviour:
   audioSource: {fileID: 0}
   tileAppearSound: {fileID: 0}
   soundVolume: 0.5
+--- !u!114 &571342511
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 571342501}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc79f9ca4d5cd4a43b8881349784a9c1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  enableFSM: 1
+  debugFSM: 1
+  gameManager: {fileID: 0}
+  stateMachine: {fileID: 0}
 --- !u!1 &617239124
 GameObject:
   m_ObjectHideFlags: 0

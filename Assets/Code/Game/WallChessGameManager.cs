@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using WallChess.Data;
 
 namespace WallChess
 {
@@ -86,32 +87,56 @@ namespace WallChess
             }
         }
 
-        [Header("Game Settings")]
-        public int gridSize = 9;
-        public float tileSize = 1f;
-        public float tileGap = 0.2f;
-        public int wallsPerPlayer = 9;
-        public int numberOfPlayers = 2;
+        [Header("Configuration")]
+        [Tooltip("Core game settings (grid size, walls per player, etc.)")] 
+        public GameSettings gameSettings;
         
-        [Header("Debug Settings")]
-        [Tooltip("When enabled, allows any pawn to be moved regardless of turn")]
-        public bool debugMode = false;
+        [Tooltip("Grid layout and visual settings (tile size, gaps, wall dimensions)")]
+        public GridSettings gridSettings;
         
-        [Header("Wall Settings")]
-        public float wallThickness = 0.15f;
-        public float wallHeight = 1f;
-
-        [Header("Prefabs")]
-        public GameObject tilePrefab;
-        public GameObject[] playerPrefabs; // Array for different player colors
-        public GameObject wallPrefab;
-        public GameObject highlightPrefab;
-        public GameObject highlightConfirmPrefab; // NEW: Confirm highlight for drag operations
-        public GameObject wallPreviewPrefab;
+        [Tooltip("References to all prefabs used in the game")]
+        public PrefabReferences prefabReferences;
+        
+        [Tooltip("Debug and development configuration")]
+        public DebugSettings debugSettings;
 
         [Header("Current State")]
         public GameState currentState = GameState.PlayerTurn;
         public ActionType currentAction = ActionType.Idle;
+        
+        // PROPERTY ACCESSORS - Backward compatibility and cleaner access
+        public int gridSize => gameSettings ? gameSettings.gridSize : 9;
+        public float tileSize => gridSettings ? gridSettings.tileSize : 1f;
+        public float tileGap => gridSettings ? gridSettings.tileGap : 0.2f;
+        public int wallsPerPlayer => gameSettings ? gameSettings.wallsPerPlayer : 9;
+        
+        public int numberOfPlayers 
+        {
+            get => gameSettings ? gameSettings.numberOfPlayers : 2;
+            set 
+            {
+                if (gameSettings != null)
+                {
+                    gameSettings.numberOfPlayers = value;
+                }
+                else
+                {
+                    Debug.LogWarning("Cannot set numberOfPlayers: GameSettings not assigned!");
+                }
+            }
+        }
+        
+        public bool debugMode => debugSettings ? debugSettings.debugMode : false;
+        public float wallThickness => gridSettings ? gridSettings.wallThickness : 0.15f;
+        public float wallHeight => gridSettings ? gridSettings.wallHeight : 1f;
+        
+        // Prefab accessors with null checks
+        public GameObject tilePrefab => prefabReferences ? prefabReferences.tilePrefab : null;
+        public GameObject[] playerPrefabs => prefabReferences ? prefabReferences.playerPrefabs : null;
+        public GameObject wallPrefab => prefabReferences ? prefabReferences.wallPrefab : null;
+        public GameObject highlightPrefab => prefabReferences ? prefabReferences.highlightPrefab : null;
+        public GameObject highlightConfirmPrefab => prefabReferences ? prefabReferences.highlightConfirmPrefab : null;
+        public GameObject wallPreviewPrefab => prefabReferences ? prefabReferences.wallPreviewPrefab : null;
         
         // PLAYER PAWN SYSTEM
         [Header("Player Pawn System")]
@@ -146,8 +171,21 @@ namespace WallChess
         [ContextMenu("Debug/Toggle Debug Mode")]
         private void Ctx_ToggleDebugMode()
         {
-            debugMode = !debugMode;
-            Debug.Log($"Debug Mode {(debugMode ? "ENABLED" : "DISABLED")} - Any pawn can be moved");
+            if (debugSettings != null)
+            {
+                debugSettings.debugMode = !debugSettings.debugMode;
+                Debug.Log($"Debug Mode {(debugMode ? "ENABLED" : "DISABLED")} - Any pawn can be moved");
+            }
+            else
+            {
+                Debug.LogWarning("Debug Settings ScriptableObject not assigned!");
+            }
+        }
+        
+        [ContextMenu("Settings/Validate Configuration")]
+        private void Ctx_ValidateConfiguration()
+        {
+            ValidateScriptableObjects();
         }
 
         [ContextMenu("Debug/Test Pawn System")]
@@ -261,7 +299,44 @@ namespace WallChess
 
         void Start()
         {
+            ValidateScriptableObjects();
             InitializeGame();
+        }
+        
+        /// <summary>
+        /// Validates that all required ScriptableObjects are assigned
+        /// </summary>
+        private void ValidateScriptableObjects()
+        {
+            bool hasErrors = false;
+            
+            if (gameSettings == null)
+            {
+                Debug.LogError("GameSettings ScriptableObject not assigned! Using default values.", this);
+                hasErrors = true;
+            }
+            
+            if (gridSettings == null)
+            {
+                Debug.LogError("GridSettings ScriptableObject not assigned! Using default values.", this);
+                hasErrors = true;
+            }
+            
+            if (prefabReferences == null)
+            {
+                Debug.LogError("PrefabReferences ScriptableObject not assigned! Game may not function properly.", this);
+                hasErrors = true;
+            }
+            
+            if (debugSettings == null)
+            {
+                Debug.LogWarning("DebugSettings ScriptableObject not assigned! Using default values.", this);
+            }
+            
+            if (!hasErrors)
+            {
+                Debug.Log("All ScriptableObjects validated successfully.", this);
+            }
         }
 
 void InitializeGame()
@@ -454,19 +529,19 @@ private void OnTileAnimationCompleted()
                 Vector3 worldPos = gridSystem.GridToWorldPosition(pawn.position);
 
                 GameObject prefab = null;
-                if (playerPrefabs != null && i < playerPrefabs.Length && playerPrefabs[i] != null)
+                if (prefabReferences != null)
                 {
-                    prefab = playerPrefabs[i];
+                    prefab = prefabReferences.GetPlayerPrefab(i);
                 }
-                else if (playerPrefabs != null && playerPrefabs.Length > 0 && playerPrefabs[0] != null)
-                {
-                    prefab = playerPrefabs[0]; // Fallback to first prefab
-                }
-
+                
                 if (prefab != null)
                 {
                     pawn.avatar = Instantiate(prefab, worldPos, Quaternion.identity);
                     pawn.avatar.name = $"Player{i}_Avatar";
+                }
+                else
+                {
+                    Debug.LogError($"No valid player prefab found for player {i}. Check PrefabReferences.", this);
                 }
             }
         }
@@ -955,20 +1030,41 @@ private void OnTileAnimationCompleted()
             
             if (newGridSize > 0 && newGridSize != gridSize)
             {
-                gridSize = newGridSize;
-                changed = true;
+                if (gameSettings != null)
+                {
+                    gameSettings.gridSize = newGridSize;
+                    changed = true;
+                }
+                else
+                {
+                    Debug.LogError("Cannot update grid size: GameSettings not assigned!");
+                }
             }
             
             if (newTileSize > 0 && newTileSize != tileSize)
             {
-                tileSize = newTileSize;
-                changed = true;
+                if (gridSettings != null)
+                {
+                    gridSettings.tileSize = newTileSize;
+                    changed = true;
+                }
+                else
+                {
+                    Debug.LogError("Cannot update tile size: GridSettings not assigned!");
+                }
             }
             
             if (newTileGap >= 0 && newTileGap != tileGap)
             {
-                tileGap = newTileGap;
-                changed = true;
+                if (gridSettings != null)
+                {
+                    gridSettings.tileGap = newTileGap;
+                    changed = true;
+                }
+                else
+                {
+                    Debug.LogError("Cannot update tile gap: GridSettings not assigned!");
+                }
             }
 
             if (changed && gridSystem != null)

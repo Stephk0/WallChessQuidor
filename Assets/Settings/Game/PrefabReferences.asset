@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6336d767f488c944ab8dd94957c3d40c, type: 3}
+  m_Name: PrefabReferences
+  m_EditorClassIdentifier: 
+  tilePrefab: {fileID: 5577114759913681639, guid: 5300312f4cdbc1149be335cc80e19323, type: 3}
+  wallPrefab: {fileID: 0}
+  playerPrefabs:
+  - {fileID: 4779446578767639209, guid: cda10330e64945e41baaf198e86952e4, type: 3}
+  - {fileID: 4779446578767639209, guid: f575019552a96af43bd9d7d6ecce35da, type: 3}
+  - {fileID: 4779446578767639209, guid: cda10330e64945e41baaf198e86952e4, type: 3}
+  - {fileID: 4779446578767639209, guid: f575019552a96af43bd9d7d6ecce35da, type: 3}
+  highlightPrefab: {fileID: 150230146685571070, guid: 2166a8fc1915b104db380a9ea7a45d15, type: 3}
+  highlightConfirmPrefab: {fileID: 150230146685571070, guid: 21c5ca73fed6db24e85ef354f6298196, type: 3}
+  wallPreviewPrefab: {fileID: 0}
