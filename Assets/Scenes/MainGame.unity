@@ -381,6 +381,37 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 202568243}
   m_CullTransparentMesh: 1
+--- !u!1 &469701279
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 469701281}
+  m_Layer: 0
+  m_Name: GameObject
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &469701281
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 469701279}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 3.63, z: 0.17999998}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &472277259
 GameObject:
   m_ObjectHideFlags: 0
@@ -697,14 +728,16 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 571342502}
+  - component: {fileID: 571342512}
+  - component: {fileID: 571342514}
   - component: {fileID: 571342504}
-  - component: {fileID: 571342505}
+  - component: {fileID: 571342513}
   - component: {fileID: 571342506}
-  - component: {fileID: 571342508}
+  - component: {fileID: 571342505}
   - component: {fileID: 571342507}
   - component: {fileID: 571342509}
   - component: {fileID: 571342510}
-  - component: {fileID: 571342511}
+  - component: {fileID: 571342515}
   m_Layer: 0
   m_Name: WallChessGameManager
   m_TagString: Untagged
@@ -739,14 +772,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f0e3a4c70cda40143a8bc76c1cecedf6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  currentApplicationState: Unknown
+  currentSessionState: Unknown
+  currentActivePawn: No active pawn
   gameSettings: {fileID: 11400000, guid: b89325b834a98134db67ac264db15370, type: 2}
   gridSettings: {fileID: 11400000, guid: d238c322072093b4aa69d9cf9b883161, type: 2}
   prefabReferences: {fileID: 11400000, guid: dbc75cb73c62365498fc8ee21ca9edee, type: 2}
   debugSettings: {fileID: 11400000, guid: 7bdb504eabc4e1945906ad7b7fcfde6f, type: 2}
-  currentState: 0
-  currentAction: 0
-  pawns: []
-  activePlayerIndex: 0
 --- !u!114 &571342505
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -762,8 +794,14 @@ MonoBehaviour:
   opponentIsAI: 1
   difficulty: 4
   thinkDelaySeconds: 0.736
-  logDecisions: 0
-  playerCtrl: {fileID: 571342508}
+  strategy: 0
+  useAdvancedPathAnalysis: 0
+  useOpeningStrategies: 1
+  pathMaximizationWeight: 1.5
+  enableMirroring: 1
+  logDecisions: 1
+  actionStateMachine: {fileID: 0}
+  pawnController: {fileID: 0}
   wallMgr: {fileID: 571342507}
   grid: {fileID: 571342506}
 --- !u!114 &571342506
@@ -927,22 +965,6 @@ MonoBehaviour:
   enablePathfindingVisualization: 0
   pathfindingDebugMode: 2
   updateVisualizationOnWallPlacement: 0
---- !u!114 &571342508
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 571342501}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4098b6f3866b672448f108709efee748, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  pieDial: {fileID: 2038231429}
-  enablePieDialControl: 1
-  directionThreshold: 0
-  enableDebugLogs: 0
 --- !u!114 &571342509
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1093,7 +1115,7 @@ MonoBehaviour:
   audioSource: {fileID: 0}
   tileAppearSound: {fileID: 0}
   soundVolume: 0.5
---- !u!114 &571342511
+--- !u!114 &571342512
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1102,13 +1124,61 @@ MonoBehaviour:
   m_GameObject: {fileID: 571342501}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: cc79f9ca4d5cd4a43b8881349784a9c1, type: 3}
+  m_Script: {fileID: 11500000, guid: f96b7b269dccf974eac2e8f2d062ac25, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  enableFSM: 1
-  debugFSM: 1
+  enableApplicationFSM: 1
+  debugApplicationFSM: 1
+  startupState: 1
+  startInMenuState: 0
+  gameManager: {fileID: 571342504}
+  applicationStateMachine: {fileID: 0}
+--- !u!114 &571342513
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 571342501}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3287f36de35598b488cf733ca9e8f21f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  autoStartSession: 1
+  debugLogs: 1
+  stateTransitionDelay: 0.1
   gameManager: {fileID: 0}
   stateMachine: {fileID: 0}
+--- !u!114 &571342514
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 571342501}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ad3fae295b97b4439ef1de0c7e4e3d7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  currentStateName: None
+  enableDebugLogs: 1
+--- !u!114 &571342515
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 571342501}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4dabc4d7471597b4693f5d18188713d9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  maxHighlights: 8
+  maxConfirmHighlights: 8
+  maxOpponentHighlights: 8
 --- !u!1 &617239124
 GameObject:
   m_ObjectHideFlags: 0
@@ -2537,6 +2607,37 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 988975897}
   m_CullTransparentMesh: 1
+--- !u!1 &1000265689
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1000265690}
+  m_Layer: 0
+  m_Name: TestHelper
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1000265690
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1000265689}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1001029188
 GameObject:
   m_ObjectHideFlags: 0
@@ -14114,7 +14215,7 @@ MonoBehaviour:
   OnDirectionConfirmed:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 571342508}
+      - m_Target: {fileID: 0}
         m_TargetAssemblyTypeName: WallChess.PlayerControllerV2, Assembly-CSharp
         m_MethodName: MovePawnWithPieDial
         m_Mode: 0
@@ -14185,6 +14286,37 @@ MonoBehaviour:
   m_EffectColor: {r: 0, g: 0, b: 0, a: 0.5}
   m_EffectDistance: {x: 0, y: -40}
   m_UseGraphicAlpha: 1
+--- !u!1 &2131484680
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2131484681}
+  m_Layer: 0
+  m_Name: TempSetup
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &2131484681
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2131484680}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1261754701093363435
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -19280,3 +19412,6 @@ SceneRoots:
   - {fileID: 2567076031586890295}
   - {fileID: 927116786}
   - {fileID: 1368470195}
+  - {fileID: 469701281}
+  - {fileID: 2131484681}
+  - {fileID: 1000265690}

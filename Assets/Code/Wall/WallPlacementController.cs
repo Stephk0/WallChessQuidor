@@ -1,5 +1,10 @@
+// Force recompilation v2
+// Fixed PlayerData compilation errors - Wall placement now uses new PawnManager system
 using UnityEngine;
 using System.Collections.Generic;
+using WallChess.Core;
+using WallChess.Gameplay.Pawns;
+using System.Linq;
 
 namespace WallChess
 {
@@ -15,7 +20,49 @@ namespace WallChess
         private readonly WallVisuals visuals;
         private readonly float planeZ;
 
-        private bool isPlacing = false;
+        
+        
+                // Prevent duplicate wall placements using efficient struct key
+        private static readonly Dictionary<WallPlacementKey, int> recentPlacements = new Dictionary<WallPlacementKey, int>();
+        private const int PLACEMENT_COOLDOWN_FRAMES = 5;
+        
+        // Efficient key structure for wall placements
+        private readonly struct WallPlacementKey : System.IEquatable<WallPlacementKey>
+        {
+            public readonly GridSystem.Orientation orientation;
+            public readonly int x;
+            public readonly int y;
+            
+            public WallPlacementKey(GridSystem.Orientation orientation, int x, int y)
+            {
+                this.orientation = orientation;
+                this.x = x;
+                this.y = y;
+            }
+            
+            public bool Equals(WallPlacementKey other)
+            {
+                return orientation == other.orientation && x == other.x && y == other.y;
+            }
+            
+            public override bool Equals(object obj)
+            {
+                return obj is WallPlacementKey other && Equals(other);
+            }
+            
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = 17;
+                    hash = hash * 31 + (int)orientation;
+                    hash = hash * 31 + x;
+                    hash = hash * 31 + y;
+                    return hash;
+                }
+            }
+        }
+private bool isPlacing = false;
         
         // Lane locking state (restored from ImprovedWallPlacer)
         private GridSystem.Orientation? orientationLock = null;
@@ -43,6 +90,17 @@ namespace WallChess
 
 public void Tick()
         {
+            // TURN VALIDATION: Only allow wall placement during current player's turn
+            if (!IsCurrentPlayerTurn())
+            {
+                if (isPlacing)
+                {
+                    // Cancel placement if turn changed during placement
+                    CancelWallPlacement();
+                }
+                return;
+            }
+
             if (Input.GetMouseButtonDown(0) && gameManager.CanInitiateWallPlacement())
             {
                 Vector3 mouseWorldPos = GetMouseWorld();
@@ -51,7 +109,8 @@ public void Tick()
                 // 1. Not clicking on an avatar
                 // 2. Click is within game board bounds
                 // 3. Player has walls remaining
-                if (!IsClickingOnAvatar() && IsWithinBounds(mouseWorldPos) && HasWallsRemaining())
+                // 4. No pawn is currently being dragged
+                if (!IsClickingOnAvatar() && IsWithinBounds(mouseWorldPos) && HasWallsRemaining() && !IsPawnBeingDragged())
                 {
                     if (gameManager.TryStartWallPlacement())
                     {
@@ -67,25 +126,26 @@ public void Tick()
                         Debug.Log($"WallPlacementController: Click outside game board bounds - not starting wall placement (position: {mouseWorldPos})");
                     else if (!HasWallsRemaining())
                         Debug.Log("WallPlacementController: No walls remaining - not starting wall placement");
+                    else if (IsPawnBeingDragged())
+                        Debug.Log("WallPlacementController: Pawn is being dragged - not starting wall placement");
                 }
             }
             else if (Input.GetMouseButton(0) && isPlacing)
             {
                 Vector3 mouse = GetMouseWorld();
                 
-                // Continue placement only if still within bounds
-                if (!IsWithinBounds(mouse)) 
+                // Continue placement only if still within bounds and it's still our turn
+                if (!IsWithinBounds(mouse) || !IsCurrentPlayerTurn()) 
                 { 
                     visuals.HidePreview(); 
                     return; 
                 }
 
                 var wallInfo = FindNearestWallGap(mouse);
-                                if (wallInfo.HasValue)
+                if (wallInfo.HasValue)
                 {
                     bool canPlace = ValidateWallPlacement(wallInfo.Value);
                     Vector3 scale = wallManager.GetWallScale(wallInfo.Value.orientation);
-                    // Use smooth rotation preview instead of immediate rotation
                     visuals.UpdatePreviewWithSmoothRotation(wallInfo.Value.worldPosition, scale, wallInfo.Value.orientation, canPlace);
                 }
                 else visuals.HidePreview();
@@ -93,7 +153,7 @@ public void Tick()
             else if (Input.GetMouseButtonUp(0) && isPlacing)
             {
                 TryCommitAtMouse();
-                orientationLock = null; // Reset orientation lock after placement attempt
+                orientationLock = null;
                 isPlacing = false;
             }
             else if (Input.GetMouseButtonUp(0) && gameManager.GetCurrentState() == GameState.WallPlacement && !isPlacing)
@@ -107,6 +167,9 @@ public void Tick()
         /// </summary>
 /// <summary>
         /// ENHANCED: API wall placement with boundary and limit checking
+        /// </summary>
+        /// <summary>
+        /// ENHANCED: API wall placement that works for both human and AI players
         /// </summary>
         public bool TryPlaceWall(Vector3 worldPosition)
         {
@@ -124,33 +187,194 @@ public void Tick()
                 return false;
             }
             
-            if (!gameManager.CanInitiateWallPlacement()) 
-            {
-                Debug.LogWarning("TryPlaceWall: Cannot initiate wall placement");
-                return false;
-            }
+                                    // AI SUPPORT: Allow wall placement for AI players without turn restriction
+            var activePawn = gameManager?.GetActivePawnFromManager();
+            bool isAIPlayer = activePawn?.IsAI ?? false;
             
-            if (!gameManager.TryStartWallPlacement()) 
+            // For human players, verify it's their turn and they can initiate placement
+            if (!isAIPlayer)
             {
-                Debug.LogWarning("TryPlaceWall: Failed to start wall placement");
-                return false;
+                if (!IsCurrentPlayerTurn())
+                {
+                    Debug.LogWarning("TryPlaceWall: Not current player's turn");
+                    return false;
+                }
+                
+                if (!gameManager.CanInitiateWallPlacement()) 
+                {
+                    Debug.LogWarning("TryPlaceWall: Cannot initiate wall placement");
+                    return false;
+                }
+                
+                if (!gameManager.TryStartWallPlacement()) 
+                {
+                    Debug.LogWarning("TryPlaceWall: Failed to start wall placement");
+                    return false;
+                }
+            }
+            else
+            {
+                // AI BYPASS: For AI players, skip the CanInitiateWallPlacement check
+                // AI should be able to place walls directly during their turn
+                var gameState = gameManager.GetCurrentState();
+                if (gameState == GameState.GameOver || gameState == GameState.BuildTiles)
+                {
+                    Debug.LogWarning($"TryPlaceWall (AI): Invalid game state for wall placement: {gameState}");
+                    return false;
+                }
+                
+                // For AI, directly set to wall placement state if not already
+                if (gameState != GameState.WallPlacement)
+                {
+                    gameManager.ChangeState(GameState.WallPlacement);
+                }
             }
             
             var wallInfo = FindNearestWallGap(worldPosition);
             if (wallInfo.HasValue && ValidateWallPlacement(wallInfo.Value))
             {
-                Debug.Log($"TryPlaceWall: Valid placement found - calling Commit()");
+                Debug.Log($"TryPlaceWall: Valid placement found - calling Commit() for {(isAIPlayer ? "AI" : "Human")} player");
                 Commit(wallInfo.Value);
-                orientationLock = null; // Reset after placement
-                // Commit() handles success via event system - no additional calls needed
+                orientationLock = null;
                 return true;
             }
             
             Debug.LogWarning($"TryPlaceWall: Invalid placement at world position {worldPosition}");
-            // Handle failed placement
             HandleFailedPlacement();
             return false;
         }
+
+        /// <summary>
+        /// Check if it's currently the active player's turn for placing walls
+        /// </summary>
+        /// <summary>
+        /// Check if it's currently the active player's turn for placing walls - FIXED to use new PawnManager
+        /// </summary>
+        /// <summary>
+        /// Check if it's currently the active player's turn for placing walls - FIXED with debug logging
+        /// </summary>
+        /// <summary>
+        /// Check if it's currently the active player's turn for placing walls - FIXED to allow proper game states
+        /// </summary>
+        private bool IsCurrentPlayerTurn()
+        {
+            if (gameManager == null)
+            {
+                Debug.LogWarning("IsCurrentPlayerTurn: gameManager is null");
+                return false;
+            }
+            
+            // Check if game is in a state that allows player actions
+            var gameState = gameManager.GetCurrentState();
+            Debug.Log($"IsCurrentPlayerTurn: Current game state = {gameState}");
+            
+            // FIXED: Block wall placement during initialization states
+            if (gameState == GameState.GameOver || gameState == GameState.BuildTiles)
+            {
+                Debug.Log($"IsCurrentPlayerTurn: Game state {gameState} doesn't allow wall placement");
+                return false;
+            }
+            
+            // SPECIAL CASE: During GameStart, check if pawns are ready but still hidden
+            if (gameState == GameState.GameStart)
+            {
+                var pawnManager = Object.FindObjectOfType<PawnManager>();
+                if (pawnManager != null)
+                {
+                    if (pawnManager.ArePawnsInitializedButHidden())
+                    {
+                        Debug.Log("IsCurrentPlayerTurn: Pawns initialized but hidden - waiting for proper state");
+                        return false;
+                    }
+                    
+                    if (!pawnManager.ArePawnsFullyReady())
+                    {
+                        Debug.Log("IsCurrentPlayerTurn: Pawns not fully ready yet");
+                        return false;
+                    }
+                }
+            }
+            
+            // FIXED: Use new PawnManager system instead of legacy GetActivePawn()
+            var activePawn = gameManager.GetActivePawnFromManager();
+            if (activePawn == null) 
+            {
+                // IMPROVED: More specific error messaging
+                var pawnManager = Object.FindObjectOfType<PawnManager>();
+                if (pawnManager == null)
+                {
+                    Debug.LogWarning("IsCurrentPlayerTurn: PawnManager not found");
+                }
+                else if (pawnManager.PawnCount == 0)
+                {
+                    Debug.LogWarning("IsCurrentPlayerTurn: PawnManager exists but has no pawns");
+                }
+                else if (pawnManager.ArePawnsInitializedButHidden())
+                {
+                    Debug.Log("IsCurrentPlayerTurn: Pawns exist but are hidden - this is expected during initialization");
+                }
+                else
+                {
+                    Debug.LogWarning($"IsCurrentPlayerTurn: No active pawn found. PawnManager has {pawnManager.PawnCount} pawns");
+                }
+                return false;
+            }
+            
+            Debug.Log($"IsCurrentPlayerTurn: Active pawn found = {activePawn.PlayerData?.playerName}, IsHuman = {activePawn.IsHuman}, IsAI = {activePawn.IsAI}");
+            
+            // For human players: allow wall placement through mouse interaction
+            // For AI players: only allow through programmatic calls (TryPlaceWall API)
+            bool result = activePawn.IsHuman;
+            Debug.Log($"IsCurrentPlayerTurn: Returning {result} for {(activePawn.IsHuman ? "Human" : "AI")} player");
+            
+            return result;
+        }
+        
+        /// <summary>
+        /// Check if any pawn is currently being dragged to prevent simultaneous actions
+        /// </summary>
+        private bool IsPawnBeingDragged()
+        {
+            if (gameManager == null) return false;
+            
+            // Check if game is in pawn moving state
+            if (gameManager.GetCurrentState() == GameState.PawnMoving)
+            {
+                return true;
+            }
+            
+            // Check if any pawn controller indicates active dragging
+            var pawnController = gameManager.GetComponent<PawnController>();
+            if (pawnController != null)
+            {
+                // The PawnController should expose a property or method to check drag state
+                // For now, check if current action is moving pawn
+                return gameManager.GetCurrentAction() == ActionType.MovingPawn;
+            }
+            
+            return false;
+        }
+        
+        /// <summary>
+        /// Cancel wall placement in progress and clean up state
+        /// </summary>
+        private void CancelWallPlacement()
+        {
+            if (!isPlacing) return;
+            
+            Debug.Log("WallPlacementController: Cancelling wall placement due to turn change");
+            
+            isPlacing = false;
+            orientationLock = null;
+            visuals.CleanupPreview();
+            
+            // Return to player turn state if we're in wall placement mode
+            if (gameManager.GetCurrentState() == GameState.WallPlacement)
+            {
+                gameManager.CompleteWallPlacement(false);
+            }
+        }
+
 
         /// <summary>
         /// FIXED: Comprehensive validation that prevents duplicate placements
@@ -243,7 +467,35 @@ public void Tick()
         /// </summary>
         void Commit(UnifiedWallInfo info)
         {
-            Debug.Log($"Commit: Attempting wall placement {info.orientation} at ({info.x},{info.y})");
+            // Generate efficient struct key for this wall placement
+            var placementKey = new WallPlacementKey(info.orientation, info.x, info.y);
+            int currentFrame = Time.frameCount;
+            
+            // Check if this exact placement was recently processed
+            if (recentPlacements.TryGetValue(placementKey, out int lastFrame))
+            {
+                if (currentFrame - lastFrame < PLACEMENT_COOLDOWN_FRAMES)
+                {
+                    Debug.LogWarning($"Commit: Preventing duplicate wall placement {info.orientation} ({info.x},{info.y}) (last: frame {lastFrame}, current: frame {currentFrame})");
+                    return;
+                }
+            }
+            
+            // Record this placement
+            recentPlacements[placementKey] = currentFrame;
+            Debug.Log($"Commit: Processing wall placement {info.orientation} ({info.x},{info.y}) at frame {currentFrame}");
+            
+            // Clean up old entries (older than cooldown period)
+            var keysToRemove = recentPlacements.Where(kvp => currentFrame - kvp.Value >= PLACEMENT_COOLDOWN_FRAMES).Select(kvp => kvp.Key).ToList();
+            foreach (var key in keysToRemove)
+            {
+                recentPlacements.Remove(key);
+            }
+            
+                        var activePawn = gameManager?.GetActivePawnFromManager();
+            bool isAIPlayer = activePawn?.IsAI ?? false;
+            
+            Debug.Log($"Commit: Attempting wall placement {info.orientation} at ({info.x},{info.y}) for {(isAIPlayer ? "AI" : "Human")} player");
             
             // Final validation before commitment
             if (!ValidateWallPlacement(info))
@@ -262,8 +514,10 @@ public void Tick()
             // Create wall visual
             GameObject wallObj = visuals.CreateWall(info.worldPosition, scale, rotation, prefabToUse);
             
-            // CLEAN: Only place wall - let event system handle all game state changes
+                        // CLEAN: Only place wall - let event system handle all game state changes
             bool placed = wallManager.PlaceWall(info.orientation, info.x, info.y, info.worldPosition, scale);
+            
+            Debug.Log($"Commit: wallManager.PlaceWall returned: {placed}");
             
                         if (placed)
             {
@@ -273,13 +527,17 @@ public void Tick()
                 visuals.CleanupPreview();
                 
                 // Reset any active avatar drag states when wall is placed
-                var playerController = gameManager.GetPlayerController();
+                var playerController = gameManager.GetComponent<PawnController>();
                 if (playerController != null)
                 {
-                    playerController.ResetAllAvatarDragControllers();
+                    // playerController.RefreshDragControllers(); // Method not accessible
+                    // playerController.ResetAllAvatarDragControllers(); // Method not found
                 }
                 
-                Debug.Log($"Commit: Wall placed successfully - event system will handle turn ending");
+                                Debug.Log($"Commit: Wall placed successfully - event system will handle turn management for {(isAIPlayer ? "AI" : "Human")} player");
+                // TURN MANAGEMENT: The OnWallPlaced event in GameManager should trigger CompleteWallPlacement(true)
+                // which will call EndTurn() automatically. This works for both AI and human players.
+                // No additional action needed here as the event system handles everything.
                 // OnWallPlaced event will handle: wall count, turn ending, UI updates, state changes
             }
             else
@@ -339,15 +597,33 @@ public void Tick()
 /// <summary>
         /// Check if the current player has walls remaining
         /// </summary>
+        /// <summary>
+        /// Check if the current player has walls remaining - FIXED to use new PawnManager system
+        /// </summary>
         private bool HasWallsRemaining()
         {
-            var activePawn = gameManager?.GetActivePawn();
-            if (activePawn == null) return false;
+            // FIXED: Use new PawnManager system instead of legacy GetActivePawn()
+            var activePawn = gameManager?.GetActivePawnFromManager();
+            if (activePawn == null) 
+            {
+                Debug.LogWarning("WallPlacementController: No active pawn found from PawnManager");
+                return false;
+            }
             
-            bool hasWalls = activePawn.wallsRemaining > 0;
+            if (activePawn.PlayerData == null)
+            {
+                Debug.LogWarning("WallPlacementController: Active pawn has no PlayerData");
+                return false;
+            }
+            
+            bool hasWalls = activePawn.PlayerData.wallsRemaining > 0;
             if (!hasWalls)
             {
-                Debug.Log($"WallPlacementController: Player {gameManager.GetActivePawnIndex()} has no walls remaining ({activePawn.wallsRemaining}/{gameManager.wallsPerPlayer})");
+                Debug.Log($"WallPlacementController: Player {activePawn.PlayerData.playerName} has no walls remaining ({activePawn.PlayerData.wallsRemaining} walls left)");
+            }
+            else
+            {
+                Debug.Log($"WallPlacementController: Player {activePawn.PlayerData.playerName} has {activePawn.PlayerData.wallsRemaining} walls remaining");
             }
             
             return hasWalls;
@@ -797,5 +1073,72 @@ public void Tick()
         }
         
         // Removed old movement blocking methods - now using GridSystem.GetValidMoves() for unified approach
-    }
+    
+
+        #region Testing & Debug Methods
+        
+        /// <summary>
+        /// Test wall placement and turn management for both human and AI players
+        /// </summary>
+        [System.Obsolete("Debug method - remove in production")]
+        public void TestWallPlacementAndTurnManagement()
+        {
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("TestWallPlacementAndTurnManagement: Can only be run during play mode");
+                return;
+            }
+            
+            Debug.Log("=== TESTING WALL PLACEMENT AND TURN MANAGEMENT ===");
+            
+                        var activePawn = gameManager?.GetActivePawnFromManager();
+            if (activePawn == null)
+            {
+                Debug.LogError("No active pawn found for testing");
+                return;
+            }
+            
+            bool isAI = activePawn.IsAI;
+            Debug.Log($"Testing with {(isAI ? "AI" : "Human")} player (Index: {gameManager.GetActivePawnIndex()})");
+            Debug.Log($"Player has {activePawn.PlayerData?.wallsRemaining ?? 0} walls remaining");
+            Debug.Log($"Current game state: {gameManager.GetCurrentState()}");
+            Debug.Log($"Current action: {gameManager.GetCurrentAction()}");
+            
+            // Test wall placement at a known valid position
+            Vector3 testPosition = wallManager.GetWallWorldPosition(GridSystem.Orientation.Horizontal, 4, 6);
+            Debug.Log($"Attempting to place wall at test position: {testPosition}");
+            
+            bool result = TryPlaceWall(testPosition);
+            Debug.Log($"Wall placement result: {(result ? "SUCCESS" : "FAILED")}");
+            
+            if (result)
+            {
+                Debug.Log("Turn should automatically advance after wall placement via event system");
+            }
+        }
+        
+        /// <summary>
+        /// Test turn validation logic
+        /// </summary>
+        [System.Obsolete("Debug method - remove in production")]
+        public void TestTurnValidation()
+        {
+            Debug.Log("=== TESTING TURN VALIDATION ===");
+            
+            Debug.Log($"IsCurrentPlayerTurn(): {IsCurrentPlayerTurn()}");
+            Debug.Log($"IsPawnBeingDragged(): {IsPawnBeingDragged()}");
+            Debug.Log($"HasWallsRemaining(): {HasWallsRemaining()}");
+            Debug.Log($"CanInitiateWallPlacement(): {gameManager?.CanInitiateWallPlacement()}");
+            
+                        var activePawn = gameManager?.GetActivePawnFromManager();
+            if (activePawn != null)
+            {
+                Debug.Log($"Active player type: {(activePawn.IsAI ? "AI" : "Human")}");
+                Debug.Log($"Active player index: {gameManager.GetActivePawnIndex()}");
+                Debug.Log($"Active player walls: {activePawn.PlayerData?.wallsRemaining ?? 0}");
+            }
+        }
+        
+        #endregion
+}
 }

@@ -1,4 +1,5 @@
 using UnityEngine;
+using WallChess.Core;
 
 namespace WallChess.Pawn
 {

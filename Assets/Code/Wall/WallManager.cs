@@ -856,7 +856,7 @@ private void ValidatePrefabSetup()
             {
                 foreach (var pawn in gameManager.pawns)
                 {
-                    pawn.wallsRemaining = gameManager.wallsPerPlayer;
+                    pawn.ResetWalls(gameManager.wallsPerPlayer);
                 }
             }
             
@@ -1109,36 +1109,51 @@ private void ValidatePrefabSetup()
             return null;
         }
 
-        public int GetCurrentPlayerWallsRemaining()
+        
+    
+
+        /// <summary>
+        /// Test turn-based wall placement for debugging FSM integration
+        /// </summary>
+        [ContextMenu("Debug/Test Turn-Based Wall Placement")]
+        private void DebugTestTurnBasedWallPlacement()
         {
-            if (gameManager == null) return 0;
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("Can only test in play mode");
+                return;
+            }
             
-            var activePawn = gameManager.GetActivePawn();
-            return activePawn?.wallsRemaining ?? 0;
+            if (placement != null)
+            {
+                placement.TestWallPlacementAndTurnManagement();
+            }
+            else
+            {
+                Debug.LogError("WallPlacementController not initialized");
+            }
         }
         
-        public int GetWallsPerPlayer()
+        /// <summary>
+        /// Test turn validation for debugging FSM integration
+        /// </summary>
+        [ContextMenu("Debug/Test Turn Validation")]
+        private void DebugTestTurnValidation()
         {
-            return gameManager?.wallsPerPlayer ?? 9;
-        }
-        
-        public int GetPlayerWallsRemaining(int playerIndex)
-        {
-            if (gameManager == null || playerIndex < 0 || playerIndex >= gameManager.pawns.Count)
-                return 0;
-                
-            return gameManager.pawns[playerIndex].wallsRemaining;
-        }
-        
-        public bool CanCurrentPlayerPlaceWalls()
-        {
-            if (gameManager == null) return false;
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("Can only test in play mode");
+                return;
+            }
             
-            var activePawn = gameManager.GetActivePawn();
-            bool hasWalls = activePawn != null && activePawn.wallsRemaining > 0;
-            bool gameAllows = gameManager.CanPlaceWalls();
-            
-            return hasWalls && gameAllows;
+            if (placement != null)
+            {
+                placement.TestTurnValidation();
+            }
+            else
+            {
+                Debug.LogError("WallPlacementController not initialized");
+            }
         }
-    }
+}
 }

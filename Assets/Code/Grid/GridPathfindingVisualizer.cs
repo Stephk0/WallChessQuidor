@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
+using WallChess.Core;
 
 namespace WallChess.Grid
 {
@@ -187,12 +188,12 @@ namespace WallChess.Grid
             {
                 case DebugMode.Pawn1Only:
                     if (gameManager.pawns.Count > 0)
-                        UpdateVisualizationForPawn(gameManager.pawns[0]);
+                        UpdateVisualizationForPawn(gameManager.pawns[0].PlayerData);
                     break;
                     
                 case DebugMode.Pawn2Only:
                     if (gameManager.pawns.Count > 1)
-                        UpdateVisualizationForPawn(gameManager.pawns[1]);
+                        UpdateVisualizationForPawn(gameManager.pawns[1].PlayerData);
                     break;
                     
                 case DebugMode.BothPawns:
@@ -201,11 +202,11 @@ namespace WallChess.Grid
             }
         }
 
-        private void UpdateVisualizationForPawn(WallChessGameManager.PawnData pawnData)
+        private void UpdateVisualizationForPawn(WallChess.Core.Session.PlayerData pawnData)
         {
             if (pawnData == null) return;
 
-            Vector2Int pawnPos = pawnData.position;
+            Vector2Int pawnPos = pawnData.currentPosition;
             Vector2Int goalRow = GetGoalRowForPawn(pawnData);
             
             // Reset all spheres to neutral
@@ -296,16 +297,16 @@ namespace WallChess.Grid
             var pawn1 = gameManager.pawns[0];
             var pawn2 = gameManager.pawns[1];
             
-            Vector2Int pawn1Pos = pawn1.position;
-            Vector2Int pawn2Pos = pawn2.position;
-            Vector2Int goal1 = GetGoalRowForPawn(pawn1);
-            Vector2Int goal2 = GetGoalRowForPawn(pawn2);
+            Vector2Int pawn1Pos = pawn1.CurrentPosition;
+            Vector2Int pawn2Pos = pawn2.CurrentPosition;
+            Vector2Int goal1 = GetGoalRowForPawn(pawn1.PlayerData);
+            Vector2Int goal2 = GetGoalRowForPawn(pawn2.PlayerData);
             
             // Highlight endpoints for both pawns if enabled
             if (settings.highlightEndpoints)
             {
-                HighlightEndpointsForPawn(pawn1);
-                HighlightEndpointsForPawn(pawn2);
+                HighlightEndpointsForPawn(pawn1.PlayerData);
+                HighlightEndpointsForPawn(pawn2.PlayerData);
             }
             
             int gridSize = gridSystem.GetGridSize();
@@ -374,7 +375,7 @@ namespace WallChess.Grid
             }
         }
 
-        private void HighlightEndpointsForPawn(WallChessGameManager.PawnData pawnData)
+        private void HighlightEndpointsForPawn(WallChess.Core.Session.PlayerData pawnData)
         {
             if (pawnData == null) return;
             
@@ -392,7 +393,7 @@ namespace WallChess.Grid
             }
         }
 
-        private bool IsEndpointTile(Vector2Int tilePos, WallChessGameManager.PawnData pawnData)
+        private bool IsEndpointTile(Vector2Int tilePos, WallChess.Core.Session.PlayerData pawnData)
         {
             if (pawnData == null) return false;
             
@@ -416,13 +417,13 @@ namespace WallChess.Grid
             return false;
         }
 
-        private Vector2Int GetGoalRowForPawn(WallChessGameManager.PawnData pawnData)
+        private Vector2Int GetGoalRowForPawn(WallChess.Core.Session.PlayerData pawnData)
         {
             // Pawn 1 starts at bottom (y=0), goals at top (y=gridSize-1)
             // Pawn 2 starts at top (y=gridSize-1), goals at bottom (y=0)
             int gridSize = gridSystem.GetGridSize();
             
-            if (pawnData.position.y < gridSize / 2)
+            if (pawnData.currentPosition.y < gridSize / 2)
             {
                 return new Vector2Int(0, gridSize - 1); // Goal is at the top
             }

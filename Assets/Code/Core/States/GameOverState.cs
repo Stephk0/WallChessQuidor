@@ -1,3 +1,4 @@
+using WallChess.Gameplay.Pawns;
 using UnityEngine;
 
 namespace WallChess.Core.States

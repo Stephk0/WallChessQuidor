@@ -11,8 +11,9 @@ namespace WallChess
     public class HighlightManager : MonoBehaviour
     {
         [Header("Pool Settings")]
-        [SerializeField] private int maxHighlights = 4; // Max possible valid moves on largest grid
+        [SerializeField] private int maxHighlights = 8; // Max possible valid moves on largest grid (increased for safety)
         [SerializeField] private int maxConfirmHighlights = 8; // Max confirm highlights needed
+        [SerializeField] private int maxOpponentHighlights = 8; // Max opponent move highlights
         
         private GameObject highlightPrefab;
         private GameObject highlightConfirmPrefab;
@@ -26,9 +27,23 @@ namespace WallChess
         private List<GameObject> confirmHighlightPool = new List<GameObject>();
         private List<GameObject> activeConfirmHighlights = new List<GameObject>();
         private Transform confirmHighlightParent;
+        
+        // Opponent highlights (show for AI/opponent moves with different styling)
+        private List<GameObject> opponentHighlightPool = new List<GameObject>();
+        private List<GameObject> activeOpponentHighlights = new List<GameObject>();
+        private Transform opponentHighlightParent;
 
         public void Initialize(GameObject prefab, GameObject confirmPrefab = null)
         {
+            // Prevent multiple initializations
+            if (highlightPool != null && highlightPool.Count > 0)
+            {
+                Debug.LogWarning("[HighlightManager] Already initialized! Skipping duplicate initialization.");
+                return;
+            }
+            
+            Debug.Log($"[HighlightManager] Starting initialization with prefabs: {prefab?.name}, {confirmPrefab?.name}");
+            
             highlightPrefab = prefab;
             highlightConfirmPrefab = confirmPrefab;
             
@@ -39,11 +54,18 @@ namespace WallChess
             confirmHighlightParent = new GameObject("ConfirmHighlightPool").transform;
             confirmHighlightParent.SetParent(transform);
             
+            opponentHighlightParent = new GameObject("OpponentHighlightPool").transform;
+            opponentHighlightParent.SetParent(transform);
+            
             // Pre-pool highlight objects
             CreateHighlightPool();
             CreateConfirmHighlightPool();
+            CreateOpponentHighlightPool();
             
-            Debug.Log($"HighlightManager initialized with {highlightPool.Count} valid move highlights and {confirmHighlightPool.Count} confirm highlights");
+            Debug.Log($"[HighlightManager] Initialized with {highlightPool.Count} valid move highlights, {confirmHighlightPool.Count} confirm highlights, and {opponentHighlightPool.Count} opponent highlights. Prefab null check: highlight={highlightPrefab == null}, confirm={highlightConfirmPrefab == null}");
+            
+            // Log current state for debugging
+            Debug.Log($"[HighlightManager] Pool state - Normal pool size: {maxHighlights}, Confirm pool size: {maxConfirmHighlights}, Opponent pool size: {maxOpponentHighlights}");
         }
 
         private void CreateHighlightPool()
@@ -61,6 +83,15 @@ namespace WallChess
             {
                 GameObject highlight = CreateHighlightObject(i, highlightConfirmPrefab, "ConfirmHighlightPool_", confirmHighlightParent);
                 confirmHighlightPool.Add(highlight);
+            }
+        }
+        
+        private void CreateOpponentHighlightPool()
+        {
+            for (int i = 0; i < maxOpponentHighlights; i++)
+            {
+                GameObject highlight = CreateOpponentHighlightObject(i, highlightPrefab, "OpponentHighlightPool_", opponentHighlightParent);
+                opponentHighlightPool.Add(highlight);
             }
         }
 
@@ -103,16 +134,108 @@ namespace WallChess
             
             return highlight;
         }
+        
+        private GameObject CreateOpponentHighlightObject(int index, GameObject prefab, string namePrefix, Transform parent)
+        {
+            GameObject highlight;
+            
+            if (prefab != null)
+            {
+                highlight = Instantiate(prefab, parent);
+                
+                // Modify the material to show this is an opponent highlight
+                Renderer renderer = highlight.GetComponentInChildren<Renderer>();
+                if (renderer != null && renderer.material != null)
+                {
+                    // Create a new material with different color for opponent
+                    Material opponentMat = new Material(renderer.material);
+                    opponentMat.color = new Color(1f, 0.5f, 0f, 0.8f); // Orange color for opponents
+                    renderer.material = opponentMat;
+                }
+            }
+            else
+            {
+                // Fallback: create simple opponent highlight if prefab is missing
+                highlight = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                highlight.name = "OpponentHighlight_Fallback";
+                highlight.transform.SetParent(parent);
+                highlight.transform.localScale = Vector3.one * 0.3f;
+                
+                // Setup fallback material with orange color for opponents
+                Renderer renderer = highlight.GetComponent<Renderer>();
+                Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                mat.color = new Color(1f, 0.5f, 0f, 0.8f); // Orange for opponent highlights
+                renderer.material = mat;
+                
+                // Remove collider to prevent interference
+                Collider col = highlight.GetComponent<Collider>();
+                if (col != null) DestroyImmediate(col);
+            }
+            
+            highlight.name = $"{namePrefix}{index}";
+            highlight.SetActive(false);
+            
+            return highlight;
+        }
 
         /// <summary>
         /// Show valid move highlights (always visible during active pawn's turn)
         /// </summary>
-        public void ShowValidMoveHighlights(List<Vector2Int> positions, GridSystem gridSystem)
+/// <summary>
+        /// Show valid move highlights (always visible during active pawn's turn)
+        /// </summary>
+        /// <param name="positions">List of valid move positions</param>
+        /// <param name="gridSystem">Grid system for position conversion</param>
+        /// <param name="isPlayerPawn">True for human player, false for AI opponent</param>
+        public void ShowValidMoveHighlights(List<Vector2Int> positions, GridSystem gridSystem, bool isPlayerPawn = true)
         {
             if (positions == null || gridSystem == null) return;
             
-            // Clear any currently active highlights
+            // Clear both player and opponent highlights to avoid conflicts
             ClearValidMoveHighlights();
+            ClearOpponentHighlights();
+            
+            if (isPlayerPawn)
+            {
+                ShowPlayerHighlights(positions, gridSystem);
+            }
+            else
+            {
+                ShowOpponentHighlights(positions, gridSystem);
+            }
+        }
+        
+                /// <summary>
+        /// Update confirm highlight position (clears and recreates at new position)
+        /// Used when target moves from one valid position to another while staying in confirm zone
+        /// </summary>
+        public void UpdateConfirmHighlightPosition(Vector2Int newPosition, GridSystem gridSystem)
+        {
+            if (gridSystem == null) return;
+            
+            // Clear current highlight and show at new position
+            ClearConfirmHighlights();
+            ShowConfirmHighlight(newPosition, gridSystem);
+        }
+
+/// <summary>
+        /// Show highlights for player moves (green)
+        /// </summary>
+        private void ShowPlayerHighlights(List<Vector2Int> positions, GridSystem gridSystem)
+        {
+            // Safety check: ensure pool is initialized
+            if (highlightPool == null || highlightPool.Count == 0)
+            {
+                Debug.LogWarning("[HighlightManager] Pool not initialized! Attempting emergency initialization...");
+                TryEmergencyInitialization();
+                
+                // Check again after emergency init
+                if (highlightPool == null || highlightPool.Count == 0)
+                {
+                    Debug.LogError("[HighlightManager] Emergency initialization failed! Cannot show highlights.");
+                    return;
+                }
+            }
             
             // Get required number of highlights from pool
             int requiredHighlights = Mathf.Min(positions.Count, highlightPool.Count);
@@ -131,24 +254,64 @@ namespace WallChess
             
             if (positions.Count > highlightPool.Count)
             {
-                Debug.LogWarning($"Not enough valid move highlights in pool! Requested: {positions.Count}, Available: {highlightPool.Count}");
+                Debug.LogWarning($"[HighlightManager] Not enough player highlights in pool! Requested: {positions.Count}, Available: {highlightPool.Count}");
             }
             
-            Debug.Log($"Showing {activeHighlights.Count} valid move highlights");
+            Debug.Log($"[HighlightManager] Showing {activeHighlights.Count} player move highlights (green)");
         }
-        
-                /// <summary>
-        /// Update confirm highlight position (clears and recreates at new position)
-        /// Used when target moves from one valid position to another while staying in confirm zone
+
+/// <summary>
+        /// Show highlights for opponent moves (orange)
         /// </summary>
-        public void UpdateConfirmHighlightPosition(Vector2Int newPosition, GridSystem gridSystem)
+        private void ShowOpponentHighlights(List<Vector2Int> positions, GridSystem gridSystem)
         {
-            if (gridSystem == null) return;
+            // Safety check: ensure pool is initialized
+            if (opponentHighlightPool == null || opponentHighlightPool.Count == 0)
+            {
+                Debug.LogWarning("[HighlightManager] Opponent pool not initialized! Attempting emergency initialization...");
+                TryEmergencyInitialization();
+                
+                // Check again after emergency init
+                if (opponentHighlightPool == null || opponentHighlightPool.Count == 0)
+                {
+                    Debug.LogError("[HighlightManager] Emergency initialization failed! Cannot show opponent highlights.");
+                    return;
+                }
+            }
             
-            // Clear current highlight and show at new position
-            ClearConfirmHighlights();
-            ShowConfirmHighlight(newPosition, gridSystem);
+            // Get required number of highlights from opponent pool
+            int requiredHighlights = Mathf.Min(positions.Count, opponentHighlightPool.Count);
+            
+            for (int i = 0; i < requiredHighlights; i++)
+            {
+                GameObject highlight = GetOpponentHighlightFromPool();
+                if (highlight != null)
+                {
+                    Vector3 worldPos = gridSystem.GridToWorldPosition(positions[i]);
+                    highlight.transform.position = worldPos + Vector3.back * 0.1f; // Slight offset to avoid z-fighting
+                    highlight.SetActive(true);
+                    activeOpponentHighlights.Add(highlight);
+                }
+            }
+            
+            if (positions.Count > opponentHighlightPool.Count)
+            {
+                Debug.LogWarning($"[HighlightManager] Not enough opponent highlights in pool! Requested: {positions.Count}, Available: {opponentHighlightPool.Count}");
+            }
+            
+            Debug.Log($"[HighlightManager] Showing {activeOpponentHighlights.Count} opponent move highlights (orange)");
         }
+
+/// <summary>
+        /// Legacy method for backward compatibility - defaults to player highlights
+        /// </summary>
+        public void ShowValidMoveHighlights(List<Vector2Int> positions, GridSystem gridSystem)
+        {
+            ShowValidMoveHighlights(positions, gridSystem, true); // Default to player highlights
+        }
+
+
+
         
 /// <summary>
         /// Show confirm highlight at a specific position during drag operations
@@ -210,13 +373,34 @@ namespace WallChess
             }
             activeConfirmHighlights.Clear();
         }
+
+/// <summary>
+        /// Clear opponent highlights
+        /// </summary>
+        public void ClearOpponentHighlights()
+        {
+            foreach (GameObject highlight in activeOpponentHighlights)
+            {
+                if (highlight != null)
+                {
+                    highlight.SetActive(false);
+                    ReturnOpponentHighlightToPool(highlight);
+                }
+            }
+            activeOpponentHighlights.Clear();
+        }
+
         
         /// <summary>
         /// Clear all highlights (both valid move and confirm)
         /// </summary>
+/// <summary>
+        /// Clear all highlights (player, opponent, and confirm)
+        /// </summary>
         public void ClearAllHighlights()
         {
             ClearValidMoveHighlights();
+            ClearOpponentHighlights();
             ClearConfirmHighlights();
         }
         
@@ -256,6 +440,21 @@ namespace WallChess
             return null;
         }
 
+private GameObject GetOpponentHighlightFromPool()
+        {
+            for (int i = 0; i < opponentHighlightPool.Count; i++)
+            {
+                if (!opponentHighlightPool[i].activeInHierarchy)
+                {
+                    return opponentHighlightPool[i];
+                }
+            }
+            
+            Debug.LogWarning("No available opponent highlights in pool!");
+            return null;
+        }
+
+
         private void ReturnHighlightToPool(GameObject highlight)
         {
             // Highlight is already deactivated in ClearValidMoveHighlights()
@@ -276,6 +475,17 @@ namespace WallChess
             }
         }
 
+private void ReturnOpponentHighlightToPool(GameObject highlight)
+        {
+            // Highlight is already deactivated in ClearOpponentHighlights()
+            // Just ensure it's in the pool
+            if (!opponentHighlightPool.Contains(highlight))
+            {
+                Debug.LogWarning("Opponent highlight not found in pool!");
+            }
+        }
+
+
         public int GetActiveHighlightCount()
         {
             return activeHighlights.Count;
@@ -286,6 +496,12 @@ namespace WallChess
             return activeConfirmHighlights.Count;
         }
 
+public int GetActiveOpponentHighlightCount()
+        {
+            return activeOpponentHighlights.Count;
+        }
+
+
         public int GetPoolSize()
         {
             return highlightPool.Count;
@@ -295,6 +511,12 @@ namespace WallChess
         {
             return confirmHighlightPool.Count;
         }
+
+public int GetOpponentPoolSize()
+        {
+            return opponentHighlightPool.Count;
+        }
+
 
         public void ResizePool(int newSize)
         {
@@ -325,6 +547,36 @@ namespace WallChess
             Debug.Log($"HighlightManager pool resized to {highlightPool.Count} objects");
         }
 
+        /// <summary>
+        /// Emergency initialization fallback when pool is accessed but not initialized
+        /// </summary>
+/// <summary>
+        /// Emergency initialization fallback when pool is accessed but not initialized
+        /// </summary>
+        private void TryEmergencyInitialization()
+        {
+            Debug.LogWarning("[HighlightManager] Performing emergency initialization with fallback settings");
+            
+            // Try to find prefab references from the game manager
+            var gameManager = FindObjectOfType<WallChessGameManager>();
+            if (gameManager != null)
+            {
+                var highlightPrefab = gameManager.highlightPrefab;
+                var confirmPrefab = gameManager.highlightConfirmPrefab;
+                
+                if (highlightPrefab != null)
+                {
+                    Initialize(highlightPrefab, confirmPrefab);
+                    Debug.Log("[HighlightManager] Emergency initialization successful with game manager prefabs");
+                    return;
+                }
+            }
+            
+            // Fallback to null prefabs (will create primitive fallbacks)
+            Initialize(null, null);
+            Debug.Log("[HighlightManager] Emergency initialization with fallback primitives");
+        }
+        
         private void OnDestroy()
         {
             ClearAllHighlights();

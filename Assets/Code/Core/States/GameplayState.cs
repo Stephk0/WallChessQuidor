@@ -19,21 +19,28 @@ public override void OnEnter()
         {
             base.OnEnter();
             
-            if (!IsGameManagerValid()) return;
+            Debug.Log("[GameplayState] OnEnter called");
             
-            // Only set the legacy game state if it's not already PlayerTurn
-            // This prevents interfering with ongoing turn management
-            if (gameManager.GetCurrentState() != GameState.PlayerTurn)
+            if (!IsGameManagerValid())
             {
-                gameManager.ChangeState(GameState.PlayerTurn);
-                Debug.Log("GameplayState: Legacy state set to PlayerTurn");
+                Debug.LogError("[GameplayState] GameManager is not valid!");
+                return;
             }
             
-            // DO NOT force active player changes here - let the turn management system handle it
-            // The SetActivePlayer logic should only be called by the turn management flow
+            // Get current state before changing
+            var currentState = gameManager.GetCurrentState();
+            Debug.Log($"[GameplayState] Current game state before change: {currentState}");
+            
+            // Always set to PlayerTurn when entering GameplayState
+            gameManager.ChangeState(GameState.PlayerTurn);
+            Debug.Log("[GameplayState] Changed game state to PlayerTurn");
+            
+            // Verify the change took effect
+            var newState = gameManager.GetCurrentState();
+            Debug.Log($"[GameplayState] Game state after change: {newState}");
             
             int activePlayerIndex = gameManager.GetActivePawnIndex();
-            Debug.Log($"GameplayState: Entered with active player {activePlayerIndex}");
+            Debug.Log($"[GameplayState] Active player index: {activePlayerIndex}");
         }
         
         public override void OnUpdate()

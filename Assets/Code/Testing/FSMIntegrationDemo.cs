@@ -1,5 +1,5 @@
 using UnityEngine;
-using WallChess.Core;
+using WallChess.Core; // Force refresh v2
 using WallChess.Core.States;
 
 namespace WallChess.Testing
@@ -12,7 +12,7 @@ namespace WallChess.Testing
     {
         [Header("References")]
         public WallChessGameManager gameManager;
-        public GameStateController gameStateController;
+        public WallChess.Core.GameStateController gameStateController;
         public StateMachine stateMachine;
         
         [Header("Demo Settings")]
@@ -29,7 +29,7 @@ namespace WallChess.Testing
                 gameManager = GetComponent<WallChessGameManager>();
                 
             if (gameStateController == null)
-                gameStateController = GetComponent<GameStateController>();
+                gameStateController = GetComponent<WallChess.Core.GameStateController>();
                 
             if (stateMachine == null)
                 stateMachine = GetComponent<StateMachine>();

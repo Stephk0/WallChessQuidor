@@ -1,5 +1,8 @@
 using UnityEngine;
 using System.Collections.Generic;
+using WallChess.Gameplay.Pawns;
+using WallChess.Core.Session;
+using WallChess.Core;
 
 namespace WallChess.Testing
 {
@@ -76,7 +79,7 @@ namespace WallChess.Testing
                 Vector2Int startPos = pawn.startPosition;
                 
                 // Get goal tiles based on starting position
-                List<Vector2Int> goalTiles = GetGoalTilesForPawn(pawn);
+                List<Vector2Int> goalTiles = GetGoalTilesForPawn(pawn.PlayerData);
                 
                 Debug.Log($"Pawn at {currentPos} (started at {startPos}) has {goalTiles.Count} goal tiles");
                 
@@ -129,7 +132,7 @@ namespace WallChess.Testing
                     // Verify all players still have paths
                     foreach (var pawn in gameManager.pawns)
                     {
-                        List<Vector2Int> goalTiles = GetGoalTilesForPawn(pawn);
+                        List<Vector2Int> goalTiles = GetGoalTilesForPawn(pawn.PlayerData);
                         bool hasPath = false;
                         
                         foreach (var goalTile in goalTiles)
@@ -231,7 +234,7 @@ namespace WallChess.Testing
             // Verify all players still have paths after complex placement
             foreach (var pawn in gameManager.pawns)
             {
-                List<Vector2Int> goalTiles = GetGoalTilesForPawn(pawn);
+                List<Vector2Int> goalTiles = GetGoalTilesForPawn(pawn.PlayerData);
                 bool hasPath = false;
                 Vector2Int reachableGoal = Vector2Int.zero;
                 
@@ -266,7 +269,7 @@ namespace WallChess.Testing
         /// <summary>
         /// Get goal tiles for a pawn based on their starting position
         /// </summary>
-        private List<Vector2Int> GetGoalTilesForPawn(WallChessGameManager.PawnData pawn)
+        private List<Vector2Int> GetGoalTilesForPawn(PlayerData pawn)
         {
             List<Vector2Int> goalTiles = new List<Vector2Int>();
             Vector2Int startPos = pawn.startPosition;

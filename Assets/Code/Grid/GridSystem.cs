@@ -102,7 +102,8 @@ namespace WallChess
         #endregion
 
         #region Components
-        private GridCoordinateConverter coordinateConverter;
+                private WallChess.Gameplay.Pawns.PawnManager cachedPawnManager;
+private GridCoordinateConverter coordinateConverter;
         private GridUIManager uiManager;
         public GridCell[,] unifiedGrid;
         private int fullGridSize; // Will be gridSize * 2 + 1 to accommodate tiles and gaps
@@ -461,46 +462,299 @@ namespace WallChess
             return tile != null ? tile.transform.position : Vector3.zero;
         }
 
-        public List<Vector2Int> GetValidMoves(Vector2Int currentTilePos)
+public List<Vector2Int> GetValidMoves(Vector2Int currentTilePos)
         {
             List<Vector2Int> validMoves = new List<Vector2Int>();
-            Vector2Int currentUnified = TileToUnifiedPosition(currentTilePos);
             
-            // Check all 4 directions (pawns move 2 cells in unified grid)
-            Vector2Int[] directions = {
-                new Vector2Int(0, 2),  // Up
-                new Vector2Int(0, -2), // Down
-                new Vector2Int(2, 0),  // Right
-                new Vector2Int(-2, 0)  // Left
+            // Cache PawnManager reference to avoid expensive FindFirstObjectByType calls
+            if (cachedPawnManager == null)
+            {
+                cachedPawnManager = FindFirstObjectByType<WallChess.Gameplay.Pawns.PawnManager>();
+            }
+            
+            // Quick path for when no pawn manager is available (fallback to simple movement)
+            if (cachedPawnManager == null)
+            {
+                return GetBasicValidMoves(currentTilePos);
+            }
+            
+            // Get pawn positions efficiently
+            List<Vector2Int> pawnPositions = GetOtherPawnPositions(currentTilePos);
+            
+            // Define basic direction vectors in tile coordinates
+            Vector2Int[] tileDirections = {
+                new Vector2Int(0, 1),  // Up
+                new Vector2Int(0, -1), // Down
+                new Vector2Int(1, 0),  // Right
+                new Vector2Int(-1, 0)  // Left
             };
             
-            foreach (Vector2Int dir in directions)
+            foreach (Vector2Int tileDir in tileDirections)
             {
-                Vector2Int targetUnified = currentUnified + dir;
-                Vector2Int gapUnified = currentUnified + (dir / 2); // Gap between current and target
+                // Calculate adjacent tile position
+                Vector2Int adjacentTilePos = currentTilePos + tileDir;
                 
-                // FIXED: Check if target is within tile bounds, not just unified grid bounds
-                Vector2Int targetTilePos = UnifiedToTilePosition(targetUnified);
-                
-                // Check tile bounds properly (0 to gridSize-1)
-                if (targetTilePos.x < 0 || targetTilePos.x >= gridSettings.gridSize ||
-                    targetTilePos.y < 0 || targetTilePos.y >= gridSettings.gridSize)
-                    continue;
-                
-                // Check if target unified position is valid and is a tile
-                if (IsValidUnifiedPosition(targetUnified) && 
-                    unifiedGrid[targetUnified.x, targetUnified.y].IsTile &&
-                    !unifiedGrid[targetUnified.x, targetUnified.y].isOccupied)
+                // Quick bounds check
+                if (adjacentTilePos.x < 0 || adjacentTilePos.x >= gridSettings.gridSize ||
+                    adjacentTilePos.y < 0 || adjacentTilePos.y >= gridSettings.gridSize)
                 {
-                    // Check if gap is not blocked by wall
-                    if (IsValidUnifiedPosition(gapUnified) && !unifiedGrid[gapUnified.x, gapUnified.y].isOccupied)
+                    continue;
+                }
+                
+                // Check if there's a pawn at the adjacent position
+                bool adjacentPawnExists = pawnPositions.Contains(adjacentTilePos);
+                
+                if (adjacentPawnExists)
+                {
+                    // Handle jump moves more efficiently
+                    HandlePawnJumpMovesOptimized(currentTilePos, tileDir, adjacentTilePos, pawnPositions, validMoves);
+                }
+                else
+                {
+                    // Normal move - check wall blocking
+                    if (!IsPathBlockedByWall(currentTilePos, adjacentTilePos))
                     {
-                        validMoves.Add(targetTilePos);
+                        validMoves.Add(adjacentTilePos);
                     }
                 }
             }
             
             return validMoves;
+        }
+        
+        /// <summary>
+        /// Get basic valid moves without pawn jumping (fallback)
+        /// </summary>
+        private List<Vector2Int> GetBasicValidMoves(Vector2Int currentTilePos)
+        {
+            List<Vector2Int> validMoves = new List<Vector2Int>();
+            
+            Vector2Int[] directions = {
+                new Vector2Int(0, 1), new Vector2Int(0, -1),
+                new Vector2Int(1, 0), new Vector2Int(-1, 0)
+            };
+            
+            foreach (Vector2Int dir in directions)
+            {
+                Vector2Int target = currentTilePos + dir;
+                
+                if (target.x >= 0 && target.x < gridSettings.gridSize &&
+                    target.y >= 0 && target.y < gridSettings.gridSize &&
+                    !IsPathBlockedByWall(currentTilePos, target))
+                {
+                    validMoves.Add(target);
+                }
+            }
+            
+            return validMoves;
+        }
+        
+        /// <summary>
+        /// Efficiently get positions of other pawns (excluding current)
+        /// </summary>
+        private List<Vector2Int> GetOtherPawnPositions(Vector2Int excludePosition)
+        {
+            List<Vector2Int> pawnPositions = new List<Vector2Int>(4); // Pre-allocate for max 4 players
+            
+            if (cachedPawnManager != null)
+            {
+                for (int i = 0; i < cachedPawnManager.PawnCount; i++)
+                {
+                    var pawn = cachedPawnManager.GetPawn(i);
+                    if (pawn != null && pawn.CurrentPosition != excludePosition)
+                    {
+                        pawnPositions.Add(pawn.CurrentPosition);
+                    }
+                }
+            }
+            
+            return pawnPositions;
+        }
+
+/// <summary>
+        /// Clear cached references (call when pawns are recreated)
+        /// </summary>
+        public void ClearCaches()
+        {
+            cachedPawnManager = null;
+        }
+
+        
+        /// <summary>
+        /// Optimized version of jump move handling
+        /// FIX: Check if path to adjacent pawn is blocked before allowing jumps
+        /// </summary>
+        private void HandlePawnJumpMovesOptimized(Vector2Int currentTilePos, Vector2Int direction, 
+                                                Vector2Int adjacentPawnPos, List<Vector2Int> allPawnPositions, 
+                                                List<Vector2Int> validMoves)
+        {
+            // FIX: First check if we can even reach the adjacent pawn (no wall blocking)
+            if (IsPathBlockedByWall(currentTilePos, adjacentPawnPos))
+            {
+                // Cannot jump through a wall to reach adjacent pawn
+                return;
+            }
+            
+            // Calculate jump destination (two steps in the direction from current position)
+            Vector2Int jumpDestination = currentTilePos + (direction * 2);
+            
+            // Quick bounds check for jump destination
+            if (jumpDestination.x >= 0 && jumpDestination.x < gridSettings.gridSize &&
+                jumpDestination.y >= 0 && jumpDestination.y < gridSettings.gridSize &&
+                !allPawnPositions.Contains(jumpDestination) &&
+                !IsPathBlockedByWall(adjacentPawnPos, jumpDestination))
+            {
+                // Direct jump over the pawn is valid
+                validMoves.Add(jumpDestination);
+            }
+            else
+            {
+                // Try diagonal moves (more efficient version)
+                AddDiagonalJumpMovesOptimized(adjacentPawnPos, direction, allPawnPositions, validMoves);
+            }
+        }
+        
+        /// <summary>
+        /// Optimized diagonal jump moves
+        /// </summary>
+        private void AddDiagonalJumpMovesOptimized(Vector2Int adjacentPawnPos, Vector2Int direction, 
+                                                 List<Vector2Int> allPawnPositions, List<Vector2Int> validMoves)
+        {
+            // Determine perpendicular directions for diagonal moves
+            Vector2Int[] perpendicularDirs = direction.x == 0 ? 
+                new Vector2Int[] { Vector2Int.right, Vector2Int.left } :
+                new Vector2Int[] { Vector2Int.up, Vector2Int.down };
+            
+            // Check both diagonal directions
+            foreach (Vector2Int perpDir in perpendicularDirs)
+            {
+                Vector2Int diagonalDestination = adjacentPawnPos + perpDir;
+                
+                // Quick validation
+                if (diagonalDestination.x >= 0 && diagonalDestination.x < gridSettings.gridSize &&
+                    diagonalDestination.y >= 0 && diagonalDestination.y < gridSettings.gridSize &&
+                    !allPawnPositions.Contains(diagonalDestination) &&
+                    !IsPathBlockedByWall(adjacentPawnPos, diagonalDestination))
+                {
+                    validMoves.Add(diagonalDestination);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Handle pawn jumping moves when there's an adjacent pawn
+        /// Implements Quoridor rules: jump over adjacent pawn, or move diagonally if blocked
+        /// FIX: Check if path to adjacent pawn is blocked before allowing jumps
+        /// </summary>
+        private void HandlePawnJumpMoves(Vector2Int currentTilePos, Vector2Int direction, Vector2Int adjacentPawnPos, 
+                                       List<Vector2Int> allPawnPositions, List<Vector2Int> validMoves)
+        {
+            // FIX: First check if we can even reach the adjacent pawn (no wall blocking)
+            if (IsPathBlockedByWall(currentTilePos, adjacentPawnPos))
+            {
+                // Cannot jump through a wall to reach adjacent pawn
+                return;
+            }
+            
+            // Calculate jump destination (two steps in the direction from current position)
+            Vector2Int jumpDestination = currentTilePos + (direction * 2);
+            
+            // Check if straight jump is possible
+            bool canJumpStraight = IsValidJumpDestination(jumpDestination, allPawnPositions) &&
+                                  !IsPathBlockedByWall(adjacentPawnPos, jumpDestination);
+            
+            if (canJumpStraight)
+            {
+                // Direct jump over the pawn
+                validMoves.Add(jumpDestination);
+            }
+            else
+            {
+                // Straight jump is blocked (by wall or out of bounds) - try diagonal moves
+                AddDiagonalJumpMoves(currentTilePos, adjacentPawnPos, direction, allPawnPositions, validMoves);
+            }
+        }
+        
+        /// <summary>
+        /// Add diagonal jump moves when straight jump is blocked
+        /// </summary>
+        private void AddDiagonalJumpMoves(Vector2Int currentTilePos, Vector2Int adjacentPawnPos, Vector2Int direction, 
+                                        List<Vector2Int> allPawnPositions, List<Vector2Int> validMoves)
+        {
+            // Determine perpendicular directions for diagonal moves
+            Vector2Int[] perpendicularDirs;
+            
+            if (direction.x == 0) // Vertical movement
+            {
+                perpendicularDirs = new Vector2Int[] { Vector2Int.right, Vector2Int.left };
+            }
+            else // Horizontal movement  
+            {
+                perpendicularDirs = new Vector2Int[] { Vector2Int.up, Vector2Int.down };
+            }
+            
+            // Check both diagonal directions
+            foreach (Vector2Int perpDir in perpendicularDirs)
+            {
+                Vector2Int diagonalDestination = adjacentPawnPos + perpDir;
+                
+                if (IsValidJumpDestination(diagonalDestination, allPawnPositions) &&
+                    !IsPathBlockedByWall(adjacentPawnPos, diagonalDestination))
+                {
+                    validMoves.Add(diagonalDestination);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Check if a jump destination is valid (in bounds, not occupied by pawn)
+        /// </summary>
+        private bool IsValidJumpDestination(Vector2Int destination, List<Vector2Int> pawnPositions)
+        {
+            // Check bounds
+            if (destination.x < 0 || destination.x >= gridSettings.gridSize ||
+                destination.y < 0 || destination.y >= gridSettings.gridSize)
+            {
+                return false;
+            }
+            
+            // Check if occupied by another pawn
+            if (pawnPositions.Contains(destination))
+            {
+                return false;
+            }
+            
+            // Check if tile is valid and not occupied
+            Vector2Int unifiedPos = TileToUnifiedPosition(destination);
+            if (!IsValidUnifiedPosition(unifiedPos) || 
+                !unifiedGrid[unifiedPos.x, unifiedPos.y].IsTile ||
+                unifiedGrid[unifiedPos.x, unifiedPos.y].isOccupied)
+            {
+                return false;
+            }
+            
+            return true;
+        }
+        
+        /// <summary>
+        /// Check if path between two adjacent tiles is blocked by a wall
+        /// </summary>
+        public bool IsPathBlockedByWall(Vector2Int from, Vector2Int to)
+        {
+            // Calculate the gap position between the two tiles
+            Vector2Int fromUnified = TileToUnifiedPosition(from);
+            Vector2Int toUnified = TileToUnifiedPosition(to);
+            
+            // Calculate middle position (gap between tiles)
+            Vector2Int gapUnified = fromUnified + ((toUnified - fromUnified) / 2);
+            
+            // Check if gap is blocked
+            if (IsValidUnifiedPosition(gapUnified))
+            {
+                return unifiedGrid[gapUnified.x, gapUnified.y].isOccupied;
+            }
+            
+            return true; // Assume blocked if invalid position
         }
         #endregion
 
@@ -580,10 +834,15 @@ namespace WallChess
                 unifiedGrid[middleIntersection.x, middleIntersection.y].isOccupied = true;
             }
             
-            // Only trigger events if requested (not for temporary validation placements)
+                        // Only trigger events if requested (not for temporary validation placements)
             if (triggerEvents)
             {
+                Debug.Log($"GridSystem.PlaceWall: Triggering OnWallPlaced event for {wallInfo.orientation} at ({wallInfo.x},{wallInfo.y}). Subscribers: {OnWallPlaced?.GetInvocationList()?.Length ?? 0}");
                 OnWallPlaced?.Invoke(wallInfo);
+            }
+            else
+            {
+                Debug.Log($"GridSystem.PlaceWall: Not triggering events (triggerEvents = false)");
             }
             return true;
         }
@@ -935,5 +1194,40 @@ namespace WallChess
         }
 #endif
         #endregion
-    }
+    
+
+/// <summary>
+        /// Debug method to test pawn jumping logic
+        /// </summary>
+        [ContextMenu("Debug/Test Pawn Jumping")]
+        public void DebugTestPawnJumping()
+        {
+            var pawnManager = FindFirstObjectByType<WallChess.Gameplay.Pawns.PawnManager>();
+            if (pawnManager == null)
+            {
+                Debug.LogError("[GridSystem Debug] PawnManager not found!");
+                return;
+            }
+            
+            Debug.Log("[GridSystem Debug] Testing pawn jumping logic...");
+            
+            for (int i = 0; i < pawnManager.PawnCount; i++)
+            {
+                var pawn = pawnManager.GetPawn(i);
+                if (pawn != null)
+                {
+                    var validMoves = GetValidMoves(pawn.CurrentPosition);
+                    Debug.Log($"[GridSystem Debug] Pawn {pawn.PlayerData.playerName} at {pawn.CurrentPosition} has {validMoves.Count} valid moves:");
+                    
+                    foreach (var move in validMoves)
+                    {
+                        Vector2Int moveVector = move - pawn.CurrentPosition;
+                        int distance = Mathf.Abs(moveVector.x) + Mathf.Abs(moveVector.y);
+                        string moveType = distance == 1 ? "Normal" : distance == 2 ? "Jump/Diagonal" : "Unknown";
+                        Debug.Log($"  - {move} ({moveType} move, distance: {distance})");
+                    }
+                }
+            }
+        }
+}
 }

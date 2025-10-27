@@ -12,6 +12,11 @@ namespace WallChess.Core.Session
     [DisallowMultipleComponent]
     public class SessionManager : MonoBehaviour
     {
+        [Header("Session State - Read Only")]
+        [SerializeField, Tooltip("Current session status")] private string sessionStatus = "No Session";
+        [SerializeField, Tooltip("Current turn information")] private string currentTurnInfo = "No Turn";
+        [SerializeField, Tooltip("Session statistics")] private string sessionStats = "No Stats";
+        
         [Header("Session Configuration")]
         [SerializeField] private int maxPlayers = 4;
         [SerializeField] private bool debugLogs = true;
@@ -63,6 +68,45 @@ namespace WallChess.Core.Session
             if (IsSessionActive)
             {
                 turnManager?.UpdateTurn();
+            }
+            
+            UpdateDebugFields();
+        }
+        
+        /// <summary>
+        /// Updates inspector debug fields with current session state
+        /// </summary>
+        private void UpdateDebugFields()
+        {
+            // Update session status
+            if (IsSessionActive)
+            {
+                sessionStatus = $"Active - {sessionData.playerCount} players";
+            }
+            else
+            {
+                sessionStatus = "No active session";
+            }
+            
+            // Update turn info
+            if (IsSessionActive && turnManager != null)
+            {
+                var currentPlayer = GetCurrentPlayer();
+                currentTurnInfo = $"Turn {turnManager.CurrentTurn}: {currentPlayer?.playerName ?? "Unknown"} ({currentPlayer?.playerType ?? PlayerType.Human})";
+            }
+            else
+            {
+                currentTurnInfo = "No active turn";
+            }
+            
+            // Update session stats
+            if (IsSessionActive)
+            {
+                sessionStats = $"Turn: {turnManager?.CurrentTurn ?? 0}, Timer: {(enableTurnTimer ? "Enabled" : "Disabled")}";
+            }
+            else
+            {
+                sessionStats = "No session statistics";
             }
         }
         

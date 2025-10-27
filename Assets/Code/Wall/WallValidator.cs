@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using WallChess.Grid;
+using WallChess.Core;
 // Force recompile trigger
 
 namespace WallChess
@@ -104,11 +105,11 @@ namespace WallChess
         /// NEW: Get shortest path length for a specific pawn to their goal
         /// Returns -1 if no path exists
         /// </summary>
-        public int GetShortestPathLength(WallChessGameManager.PawnData pawn)
+        public int GetShortestPathLength(WallChess.Core.Session.PlayerData pawn)
         {
             if (pawn == null || gameManager == null) return -1;
             
-            Vector2Int currentPos = pawn.position;
+            Vector2Int currentPos = pawn.currentPosition;
             List<Vector2Int> goalTiles = GetGoalTiles(pawn);
             
             int shortestLength = int.MaxValue;
@@ -135,7 +136,7 @@ namespace WallChess
         /// <summary>
         /// NEW: Get all possible goal tiles for a pawn based on their starting position
         /// </summary>
-        private List<Vector2Int> GetGoalTiles(WallChessGameManager.PawnData pawn)
+        private List<Vector2Int> GetGoalTiles(WallChess.Core.Session.PlayerData pawn)
         {
             List<Vector2Int> goalTiles = new List<Vector2Int>();
             Vector2Int startPos = pawn.startPosition;
@@ -195,7 +196,7 @@ namespace WallChess
             for (int i = 0; i < gameManager.pawns.Count; i++)
             {
                 var pawn = gameManager.pawns[i];
-                int pathLength = GetShortestPathLength(pawn);
+                int pathLength = GetShortestPathLength(pawn.PlayerData);
                 
                 Debug.Log($"Pawn {i} at {pawn.position}: " + 
                          (pathLength >= 0 ? $"Shortest path = {pathLength} moves" : "No path available"));

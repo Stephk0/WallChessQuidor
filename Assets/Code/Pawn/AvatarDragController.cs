@@ -8,7 +8,7 @@ namespace WallChess
     public class AvatarDragController : MonoBehaviour
     {
         #region Private Fields
-        private PlayerControllerV2 controller;
+        private PawnController controller;
         private bool isPlayerAvatar;
         private bool isDragging = false;
         private Vector3 originalPosition;
@@ -31,7 +31,7 @@ namespace WallChess
         #endregion
         
         #region Public Methods
-        public void Initialize(PlayerControllerV2 ctrl, bool isPlayer)
+public void Initialize(PawnController ctrl, bool isPlayer)
         {
             controller = ctrl;
             isPlayerAvatar = isPlayer;
@@ -69,6 +69,20 @@ namespace WallChess
                 SyncToGridPosition();
             }
         }
+
+/// <summary>
+        /// Refresh the active state based on current turn
+        /// Called by PawnController when turns change
+        /// </summary>
+        public void RefreshActiveState()
+        {
+            // Disable dragging if it's not this avatar's turn
+            if (isDragging && !controller.CanMoveAvatar(isPlayerAvatar))
+            {
+                ForceReset();
+            }
+        }
+
         #endregion
         
         #region Unity Mouse Events

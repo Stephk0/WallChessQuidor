@@ -66,7 +66,7 @@ namespace WallChess
             // reset pawns
             if (gm != null)
             {
-                foreach (var pawn in gm.pawns) pawn.wallsRemaining = gm.wallsPerPlayer;
+                foreach (var pawn in gm.pawns) pawn.ResetWalls(gm.wallsPerPlayer);
             }
             // sync grid
             grid?.ClearGrid();

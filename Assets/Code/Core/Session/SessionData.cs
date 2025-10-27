@@ -80,7 +80,17 @@ namespace WallChess.Core.Session
         /// <summary>
         /// Use a wall (decrease remaining count)
         /// </summary>
-        public bool UseWall()
+                /// <summary>
+        /// Reset wall count to the specified amount
+        /// </summary>
+        public void ResetWalls(int wallCount)
+        {
+            wallsRemaining = wallCount;
+            wallsPlaced = 0;
+        }
+        
+        
+public bool UseWall()
         {
             if (wallsRemaining > 0)
             {

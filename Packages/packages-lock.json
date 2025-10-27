@@ -7,7 +7,7 @@
       "dependencies": {
         "com.unity.nuget.newtonsoft-json": "3.0.2"
       },
-      "hash": "ad848f06dfe99f271c528f5590e9c98bbc3a995b"
+      "hash": "5ad5b4a632fa061070a3217f2533a39680d1003b"
     },
     "com.unity.2d.animation": {
       "version": "10.1.4",
@@ -225,6 +225,18 @@
       },
       "url": "https://packages.unity.com"
     },
+    "com.unity.probuilder": {
+      "version": "6.0.7",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.shadergraph": "17.0.3",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.settings-manager": "1.0.3"
+      },
+      "url": "https://packages.unity.com"
+    },
     "com.unity.recorder": {
       "version": "5.1.2",
       "depth": 0,
@@ -282,6 +294,13 @@
     "com.unity.searcher": {
       "version": "4.9.3",
       "depth": 2,
+      "source": "registry",
+      "dependencies": {},
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.settings-manager": {
+      "version": "2.1.0",
+      "depth": 1,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"

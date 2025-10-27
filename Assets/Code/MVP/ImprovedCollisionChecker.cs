@@ -19,7 +19,7 @@ public class ImprovedCollisionChecker : MonoBehaviour
         string gapKey = GetGapKey(fromGrid, toGrid);
         if (gapKey == null) return false;
         
-        ImprovedWallPlacer wallPlacer = FindObjectOfType<ImprovedWallPlacer>();
+        ImprovedWallPlacer wallPlacer = FindFirstObjectByType<ImprovedWallPlacer>();
         if (wallPlacer != null)
         {
             return wallPlacer.IsGapOccupied(gapKey);

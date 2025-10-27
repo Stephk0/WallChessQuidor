@@ -51,7 +51,7 @@ namespace WallChess
         [SerializeField] private float overallAnimationDuration = 3f;
         [Tooltip("Total duration for the pacing curve evaluation")]
 
-        [Header("Audio (Optional)")]
+                [Header("Audio (Optional)")]
         [SerializeField] private AudioSource audioSource;
         [SerializeField] private AudioClip tileAppearSound;
         [SerializeField] private float soundVolume = 0.5f;
@@ -640,18 +640,16 @@ private IEnumerator AnimateTile(GameObject tile)
             gridSystem.CreateAllTilesImmediate();
         }
 
-        private void OnAnimationComplete()
+private void OnAnimationComplete()
         {
             isAnimating = false;
             Debug.Log($"TileAnimationController: Animation completed with {animatedTiles.Count} tiles");
             
+            // Trigger the event - let WallChessGameManager handle state transition
             OnTileAnimationCompleted?.Invoke();
             
-            // Transition to PlayerTurn state
-            if (gameManager != null)
-            {
-                gameManager.ChangeState(GameState.PlayerTurn);
-            }
+            // Don't change state here - let the game manager handle it through the event
+            Debug.Log("TileAnimationController: Event triggered, waiting for game manager to transition state");
         }
         #endregion
 

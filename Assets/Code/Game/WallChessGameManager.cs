@@ -1,26 +1,13 @@
+// Force Unity recompilation - fix caching issue v5
 using UnityEngine;
 using System.Collections.Generic;
+using WallChess.Core.Session;
+using WallChess.Gameplay.Pawns;
 using WallChess.Data;
+using WallChess.Core;
 
 namespace WallChess
 {
-    public enum GameState
-    {
-        GameStart,
-        BuildTiles,
-        PlayerTurn,
-        PawnMoving,
-        WallPlacement,
-        GameOver
-    }
-
-    public enum ActionType
-    {
-        Idle,
-        MovingPawn,
-        PlacingWall
-    }
-
     /// <summary>
     /// Comprehensive data structure for wall placement events - accessible to UI
     /// </summary>
@@ -41,52 +28,66 @@ namespace WallChess
     }
 
     /// <summary>
-    /// REFACTORED WallChessGameManager - Using Player Pawn System
+    /// REFACTORED WallChessGameManager - Cleaned up and decoupled
     /// 
-    /// KEY IMPROVEMENTS:
-    /// - List-based pawn management (up to 4 players)
-    /// - Unified turn handling through activePlayerIndex
-    /// - Generalized win/start positions
-    /// - Eliminated player/opponent hardcoding
-    /// - Proper mutual exclusion between movement and wall placement
-    /// - Clean event-driven system for UI integration
+    /// RESPONSIBILITIES:
+    /// - Core game initialization and coordination
+    /// - Wall placement event handling
+    /// - Grid system management
+    /// - Event coordination between systems
     /// 
-    /// PAWN SYSTEM:
-    /// - pawns[0] = Player 1, pawns[1] = Player 2, etc.
-    /// - activePlayerIndex tracks current turn
-    /// - All movement/wall logic works with "current active pawn"
-    /// - Supports 2-4 players with AI or human control
+    /// MOVED TO OTHER MANAGERS:
+    /// - Pawn management → PawnManager
+    /// - State management → SessionStateManager/ApplicationStates  
+    /// - Turn management → TurnManager
+    /// - Active player tracking → PawnManager
     /// 
-    /// EVENT SYSTEM:
-    /// - OnWallPlacedComplete provides comprehensive data for UI
-    /// - Clean separation between game logic and UI updates
-    /// - All game state changes flow through events
+    /// CLEAN ARCHITECTURE:
+    /// - No more monolithic responsibilities
+    /// - Event-driven communication
+    /// - Clear separation of concerns
     /// </summary>
     public class WallChessGameManager : MonoBehaviour
     {
-        [System.Serializable]
-        public class PawnData
+        /// <summary>
+        /// Update state display fields for inspector readability
+        /// </summary>
+        private void Update()
         {
-            public Vector2Int position;
-            public Vector2Int startPosition;
-            public Vector2Int winPosition;
-            public int wallsRemaining;
-            public GameObject avatar;
-            public bool isActive;
-            public bool isAI;
+            UpdateStateDisplayFields();
+        }
+        
+        /// <summary>
+        /// Updates the inspector display fields with current state information
+        /// </summary>
+        private void UpdateStateDisplayFields()
+        {
+            // Update application state
+            var appController = FindObjectOfType<MainApplicationController>();
+            currentApplicationState = appController?.GetCurrentApplicationState() ?? "Not Found";
             
-            public PawnData(Vector2Int start, Vector2Int win, int walls)
+            // Update session state
+            var sessionManager = FindObjectOfType<SessionManager>();
+            currentSessionState = sessionManager?.IsSessionActive == true ? "Active Session" : "No Session";
+            
+            // Update active pawn info
+            var pawnManager = FindObjectOfType<PawnManager>();
+            if (pawnManager?.ActivePawn != null)
             {
-                startPosition = start;
-                position = start;
-                winPosition = win;
-                wallsRemaining = walls;
-                isActive = false;
-                isAI = false;
-                avatar = null;
+                var activePawn = pawnManager.ActivePawn;
+                currentActivePawn = $"{activePawn.PlayerData.playerName} (Index: {pawnManager.ActivePawnIndex})";
+            }
+            else
+            {
+                currentActivePawn = "No active pawn";
             }
         }
 
+        [Header("State Information - Read Only")]
+        [SerializeField, Tooltip("Current main application state")] private string currentApplicationState = "Unknown";
+        [SerializeField, Tooltip("Current session state")] private string currentSessionState = "Unknown"; 
+        [SerializeField, Tooltip("Current active pawn info")] private string currentActivePawn = "No active pawn";
+        
         [Header("Configuration")]
         [Tooltip("Core game settings (grid size, walls per player, etc.)")] 
         public GameSettings gameSettings;
@@ -100,10 +101,6 @@ namespace WallChess
         [Tooltip("Debug and development configuration")]
         public DebugSettings debugSettings;
 
-        [Header("Current State")]
-        public GameState currentState = GameState.PlayerTurn;
-        public ActionType currentAction = ActionType.Idle;
-        
         // PROPERTY ACCESSORS - Backward compatibility and cleaner access
         public int gridSize => gameSettings ? gameSettings.gridSize : 9;
         public float tileSize => gridSettings ? gridSettings.tileSize : 1f;
@@ -138,13 +135,7 @@ namespace WallChess
         public GameObject highlightConfirmPrefab => prefabReferences ? prefabReferences.highlightConfirmPrefab : null;
         public GameObject wallPreviewPrefab => prefabReferences ? prefabReferences.wallPreviewPrefab : null;
         
-        // PLAYER PAWN SYSTEM
-        [Header("Player Pawn System")]
-        public List<PawnData> pawns = new List<PawnData>();
-        public int activePlayerIndex = 0;
-
         private GridSystem gridSystem;
-        private PlayerControllerV2 playerController;
         private WallManager wallManager;
         private HighlightManager highlightManager;
         private WallValidator wallValidator;
@@ -153,156 +144,116 @@ namespace WallChess
         // CLEAN EVENT SYSTEM - UI accessible events
         public static System.Action<WallPlacementResult> OnWallPlacedComplete;
         public static System.Action<int> OnPlayerTurnChanged; // playerIndex
+        public static System.Action<WallChess.Gameplay.Pawns.Pawn, Vector2Int, bool> OnPawnMoveComplete; // pawn, newPosition, wasSuccessful
         public static System.Action<int> OnPlayerVictory; // winning playerIndex
 
-        // Context menu items
-        [ContextMenu("Grid/Apply Current Settings")]
-        private void Ctx_ApplyCurrent() => UpdateGridConfiguration(gridSize, tileSize, tileGap);
+        // Flag to prevent double processing of wall placement
+        private bool isProcessingWallPlacement = false;
 
-        [ContextMenu("Grid/Presets/Small 8x8")]
-        private void Ctx_Small() => UpdateGridConfiguration(8, tileSize, tileGap);
-
-        [ContextMenu("Grid/Presets/Medium 12x12")]
-        private void Ctx_Medium() => UpdateGridConfiguration(12, tileSize, tileGap);
-
-        [ContextMenu("Grid/Presets/Large 16x16")]
-        private void Ctx_Large() => UpdateGridConfiguration(16, tileSize, tileGap);
-
-        [ContextMenu("Debug/Toggle Debug Mode")]
-        private void Ctx_ToggleDebugMode()
+        // Missing properties for backward compatibility
+        public int activePlayerIndex
         {
-            if (debugSettings != null)
+            get
             {
-                debugSettings.debugMode = !debugSettings.debugMode;
-                Debug.Log($"Debug Mode {(debugMode ? "ENABLED" : "DISABLED")} - Any pawn can be moved");
+                var pawnManager = FindObjectOfType<PawnManager>();
+                return pawnManager?.ActivePawnIndex ?? 0;
             }
-            else
+            set
             {
-                Debug.LogWarning("Debug Settings ScriptableObject not assigned!");
+                var pawnManager = FindObjectOfType<PawnManager>();
+                pawnManager?.SetActivePawn(value);
             }
         }
         
-        [ContextMenu("Settings/Validate Configuration")]
-        private void Ctx_ValidateConfiguration()
+        public List<WallChess.Gameplay.Pawns.Pawn> pawns
         {
+            get
+            {
+                var pawnManager = FindObjectOfType<PawnManager>();
+                return pawnManager?.Pawns ?? new List<WallChess.Gameplay.Pawns.Pawn>();
+            }
+        }
+
+        
+
+        
+// Legacy pawn type enum for compatibility
+        public enum PawnType { Player, Opponent }
+
+        #region Unity Lifecycle
+        
+        private void Start()
+        {
+            EnsureRequiredComponents();
             ValidateScriptableObjects();
-        }
-
-        [ContextMenu("Debug/Test Pawn System")]
-        private void Ctx_TestPawnSystem()
-        {
-            Debug.Log($"Active Player: {activePlayerIndex}, Total Pawns: {pawns.Count}");
-            for (int i = 0; i < pawns.Count; i++)
-            {
-                var pawn = pawns[i];
-                Debug.Log($"Pawn {i}: Position={pawn.position}, Walls={pawn.wallsRemaining}, Active={pawn.isActive}");
-            }
+            
+            // Initialize SessionStateManager for proper game flow
+            InitializeSessionStateManager();
+            
+            // Don't auto-initialize here - let SessionStateManager handle it
+            LogInfo("WallChessGameManager ready - waiting for SessionStateManager");
         }
         
-        [ContextMenu("Debug/Validate Game State")]
-        private void Ctx_ValidateGameState()
+        private void OnDestroy()
         {
-            if (wallValidator != null)
+            // Unsubscribe from session events
+            SessionStateManager.OnSessionReady -= OnSessionReady;
+            SessionStateManager.OnSessionStateChanged -= OnSessionStateChanged;
+            SessionStateManager.OnSessionCompleted -= OnSessionCompleted;
+            
+            // Unsubscribe from events
+            if (gridSystem != null)
             {
-                wallValidator.DebugValidateGameState();
+                gridSystem.OnTileOccupancyChanged -= OnTileOccupancyChanged;
+                gridSystem.OnWallPlaced -= OnWallPlaced;
+                gridSystem.OnGridCleared -= OnGridCleared;
             }
-            else
-            {
-                Debug.LogWarning("WallValidator not initialized");
-            }
-        }
-        
-        [ContextMenu("Debug/Print All Pawn Paths")]
-        private void Ctx_PrintAllPawnPaths()
-        {
-            if (wallValidator != null)
-            {
-                wallValidator.DebugPrintAllPawnPaths();
-                Debug.Log("Printed pathfinding debug info for all pawns");
-            }
-            else
-            {
-                Debug.LogWarning("WallValidator not initialized");
-            }
-        }
-        
-        [ContextMenu("Animation/Test One By One Animation")]
-        private void Ctx_TestOneByOneAnimation()
-        {
-            if (Application.isPlaying && tileAnimationController != null)
-            {
-                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.OneByOne);
-                // Clear existing tiles first
-                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
-                ChangeState(GameState.BuildTiles);
-                StartTileAnimationSequence();
-            }
-        }
-        
-        [ContextMenu("Animation/Test Row Animation")]
-        private void Ctx_TestRowAnimation()
-        {
-            if (Application.isPlaying && tileAnimationController != null)
-            {
-                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.RowByRow);
-                // Clear existing tiles first
-                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
-                ChangeState(GameState.BuildTiles);
-                StartTileAnimationSequence();
-            }
-        }
-        
-        [ContextMenu("Animation/Test Circular Animation")]
-        private void Ctx_TestCircularAnimation()
-        {
-            if (Application.isPlaying && tileAnimationController != null)
-            {
-                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.CircularSpiral);
-                // Clear existing tiles first
-                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
-                ChangeState(GameState.BuildTiles);
-                StartTileAnimationSequence();
-            }
-        }
-        
-        [ContextMenu("Animation/Test Ripple Animation")]
-        private void Ctx_TestRippleAnimation()
-        {
-            if (Application.isPlaying && tileAnimationController != null)
-            {
-                tileAnimationController.SetAnimationType(TileAnimationController.AnimationType.Ripple);
-                // Clear existing tiles first
-                gridSystem.ReconfigureGrid(gridSystem.GetGridSettings(), default, default, true);
-                ChangeState(GameState.BuildTiles);
-                StartTileAnimationSequence();
-            }
-        }
-        
-        [ContextMenu("Animation/Skip Animation")]
-        private void Ctx_SkipAnimation()
-        {
-            if (Application.isPlaying && tileAnimationController != null)
-            {
-                tileAnimationController.CompleteAnimationImmediately();
-            }
-        }
-        
-        [ContextMenu("Animation/Toggle Pacing Curve")]
-        private void Ctx_TogglePacingCurve()
-        {
+            
+            // Unsubscribe from animation events
             if (tileAnimationController != null)
             {
-                tileAnimationController.TogglePacingCurve();
-                Debug.Log($"Pacing curve is now {(tileAnimationController.IsPacingCurveEnabled() ? "ENABLED" : "DISABLED")}");
+                tileAnimationController.OnTileAnimationCompleted -= OnTileAnimationCompleted;
+            }
+            
+            // Unsubscribe from pawn events
+            OnPawnMoveComplete -= HandlePawnMoveComplete;
+        }
+
+        
+        // Dummy method to force recompilation
+        public void DummyMethod() { }
+        
+        #endregion
+
+        #region Initialization
+
+        /// <summary>
+        /// Ensures all required components are present on this GameObject
+        /// </summary>
+        private void EnsureRequiredComponents()
+        {
+            // Add PawnManager if missing
+            if (GetComponent<PawnManager>() == null)
+            {
+                var pawnManager = gameObject.AddComponent<PawnManager>();
+                Debug.Log("[WallChessGameManager] Added missing PawnManager component");
+            }
+
+            // Add HighlightManager if missing  
+            if (GetComponent<HighlightManager>() == null)
+            {
+                var highlightManager = gameObject.AddComponent<HighlightManager>();
+                Debug.Log("[WallChessGameManager] Added missing HighlightManager component - will be initialized later");
+            }
+
+            // Add PawnController if missing
+            if (GetComponent<PawnController>() == null)
+            {
+                var pawnController = gameObject.AddComponent<PawnController>();
+                Debug.Log("[WallChessGameManager] Added missing PawnController component");
             }
         }
 
-        void Start()
-        {
-            ValidateScriptableObjects();
-            InitializeGame();
-        }
-        
         /// <summary>
         /// Validates that all required ScriptableObjects are assigned
         /// </summary>
@@ -339,8 +290,46 @@ namespace WallChess
             }
         }
 
-void InitializeGame()
+        /// <summary>
+        /// Initialize SessionStateManager for coordinated game flow
+        /// </summary>
+        private void InitializeSessionStateManager()
         {
+            var sessionStateManager = GetComponent<SessionStateManager>();
+            if (sessionStateManager == null)
+            {
+                sessionStateManager = gameObject.AddComponent<SessionStateManager>();
+                LogInfo("Added SessionStateManager component");
+            }
+                        
+            // Subscribe to pawn movement events
+            OnPawnMoveComplete += HandlePawnMoveComplete;
+            // Subscribe to session events
+            SessionStateManager.OnSessionReady += OnSessionReady;
+            SessionStateManager.OnSessionStateChanged += OnSessionStateChanged;
+            SessionStateManager.OnSessionCompleted += OnSessionCompleted;
+            
+            LogInfo("SessionStateManager integration initialized");
+        }
+
+        /// <summary>
+        /// Public initialization method for SessionStateManager coordination
+        /// </summary>
+        public void InitializeForSession()
+        {
+            LogInfo("Initializing for session state management");
+            
+            // Initialize core systems without starting gameplay immediately
+            InitializeCoreSystemsOnly();
+        }
+        
+        /// <summary>
+        /// Initialize only core systems without starting gameplay
+        /// </summary>
+        private void InitializeCoreSystemsOnly()
+        {
+            LogInfo("Initializing core systems for session management");
+            
             // Initialize GridSystem
             gridSystem = gameObject.GetComponent<GridSystem>();
             
@@ -353,295 +342,37 @@ void InitializeGame()
                 wallHeight = this.wallHeight
             };
             
-            // Skip tile creation if we're going to animate them
-            bool skipTileCreation = true; // We'll always use animation for charm
-            gridSystem.Initialize(gridSettings, default, skipTileCreation);
-
-            // Initialize controllers (but not players yet)
-            playerController = gameObject.GetComponent<PlayerControllerV2>();
-            wallManager = gameObject.GetComponent<WallManager>();
-            highlightManager = gameObject.GetComponent<HighlightManager>();
+            // Initialize grid system without creating tiles (session states will handle that)
+            gridSystem.Initialize(gridSettings, default, true);
             
-            // If no HighlightManager exists, add one
-            if (highlightManager == null)
-            {
-                highlightManager = gameObject.AddComponent<HighlightManager>();
-            }
-            
-            playerController.Initialize(this);
-            wallManager.Initialize(this);
-            highlightManager.Initialize(highlightPrefab, highlightConfirmPrefab); // Pass both prefabs
-
-            // Initialize TileAnimationController
-            InitializeTileAnimation();
-            
-            // Start in BuildTiles state - NO player spawning yet
-            ChangeState(GameState.BuildTiles);
-            StartTileAnimationSequence();
-
-            // Subscribe to events
-            gridSystem.OnTileOccupancyChanged += OnTileOccupancyChanged;
+            // FIXED: Subscribe to wall placement events for proper turn management
             gridSystem.OnWallPlaced += OnWallPlaced;
-            gridSystem.OnGridCleared += OnGridCleared;
+            Debug.Log("Subscribed to GridSystem.OnWallPlaced event");
             
-            Debug.Log($"Game initialized in BuildTiles state. Players will spawn after tile animation.");
+            // Initialize other core managers
+            wallManager = gameObject.GetComponent<WallManager>();
+            if (wallManager != null)
+            {
+                wallManager.Initialize(this);
+            }
+            
+            LogInfo("Core systems initialized for session state coordination");
         }
-        
-        void InitializeTileAnimation()
+
+        public void InitializeGame()
         {
-            // Add TileAnimationController if it doesn't exist
-            tileAnimationController = GetComponent<TileAnimationController>();
-            if (tileAnimationController == null)
-            {
-                tileAnimationController = gameObject.AddComponent<TileAnimationController>();
-                Debug.Log("WallChessGameManager: Added TileAnimationController component");
-            }
+            LogInfo("InitializeGame called - delegating to session state management");
             
-            // Initialize the animation controller
-            tileAnimationController.Initialize(gridSystem, this);
+            // Initialize core systems
+            InitializeCoreSystemsOnly();
             
-            // Subscribe to animation events
-            tileAnimationController.OnTileAnimationCompleted += OnTileAnimationCompleted;
-            
-            Debug.Log("TileAnimationController initialized");
-        }
-        
-        void StartTileAnimationSequence()
-        {
-            if (tileAnimationController != null)
-            {
-                tileAnimationController.StartTileAnimation();
-                Debug.Log("Tile animation sequence started");
-            }
-            else
-            {
-                Debug.LogError("TileAnimationController not found - skipping animation");
-                ChangeState(GameState.PlayerTurn);
-            }
-        }
-        
-private void OnTileAnimationCompleted()
-        {
-            Debug.Log("Tile animation completed - initializing players and starting game");
-            
-            // NOW initialize players after tiles are built
-            InitializePlayerPawnSystem();
-            
-            // Initialize WallValidator with pathfinding manager (after players exist)
-            wallValidator = new WallValidator(gridSystem, this);
-
-            // Set up initial tile occupancy
-            foreach (var pawn in pawns)
-            {
-                gridSystem.SetTileOccupied(pawn.position, true);
-            }
-            
-            // IMPORTANT: Setup avatar drag controllers after avatars are created
-            if (playerController != null)
-            {
-                playerController.SetupAvatarDragControllers();
-            }
-            
-            // Set first player as active
-            SetActivePlayer(0);
-
-            if (debugMode)
-            {
-                Debug.Log("Game started in DEBUG MODE - Any pawn can be moved");
-            }
-            
-            // Transition to PlayerTurn state
-            ChangeState(GameState.PlayerTurn);
-            
-            Debug.Log($"Game ready with {pawns.Count} players. Active player: {activePlayerIndex}");
+            // Session state manager will handle the rest of the flow
+            LogInfo("Core initialization complete - session states will handle tile building and pawn spawning");
         }
 
-        void InitializePlayerPawnSystem()
-        {
-            // Ensure even number of players (2 or 4)
-            numberOfPlayers = Mathf.Clamp(numberOfPlayers, 2, 4);
-            if (numberOfPlayers == 3) numberOfPlayers = 4; // Round up to 4 as per requirements
+        #endregion
 
-            pawns.Clear();
-
-            // Calculate positions based on grid size
-            int center = Mathf.FloorToInt((gridSize - 1) / 2);
-
-            // Create pawns with generalized start/win positions
-            for (int i = 0; i < numberOfPlayers; i++)
-            {
-                Vector2Int startPos, winPos;
-                
-                if (numberOfPlayers == 2)
-                {
-                    // 2 players: opposite sides (bottom vs top)
-                    if (i == 0)
-                    {
-                        startPos = new Vector2Int(center, 0);           // Bottom center
-                        winPos = new Vector2Int(-1, gridSize - 1);     // Any position on top row
-                    }
-                    else
-                    {
-                        startPos = new Vector2Int(center, gridSize - 1); // Top center  
-                        winPos = new Vector2Int(-1, 0);                 // Any position on bottom row
-                    }
-                }
-                else // 4 players
-                {
-                    // 4 players: all sides (bottom, left, top, right)
-                    switch (i)
-                    {
-                        case 0: // Bottom
-                            startPos = new Vector2Int(center, 0);
-                            winPos = new Vector2Int(-1, gridSize - 1);
-                            break;
-                        case 1: // Left
-                            startPos = new Vector2Int(0, center);
-                            winPos = new Vector2Int(gridSize - 1, -1);
-                            break;
-                        case 2: // Top
-                            startPos = new Vector2Int(center, gridSize - 1);
-                            winPos = new Vector2Int(-1, 0);
-                            break;
-                        case 3: // Right
-                            startPos = new Vector2Int(gridSize - 1, center);
-                            winPos = new Vector2Int(0, -1);
-                            break;
-                        default:
-                            startPos = winPos = Vector2Int.zero;
-                            break;
-                    }
-                }
-
-                PawnData pawn = new PawnData(startPos, winPos, wallsPerPlayer);
-                pawns.Add(pawn);
-            }
-
-            // Create avatars for all pawns
-            CreatePlayerAvatars();
-        }
-
-        void CreatePlayerAvatars()
-        {
-            for (int i = 0; i < pawns.Count; i++)
-            {
-                var pawn = pawns[i];
-                Vector3 worldPos = gridSystem.GridToWorldPosition(pawn.position);
-
-                GameObject prefab = null;
-                if (prefabReferences != null)
-                {
-                    prefab = prefabReferences.GetPlayerPrefab(i);
-                }
-                
-                if (prefab != null)
-                {
-                    pawn.avatar = Instantiate(prefab, worldPos, Quaternion.identity);
-                    pawn.avatar.name = $"Player{i}_Avatar";
-                }
-                else
-                {
-                    Debug.LogError($"No valid player prefab found for player {i}. Check PrefabReferences.", this);
-                }
-            }
-        }
-
-        public void ChangeState(GameState newState)
-        {
-            GameState previousState = currentState;
-            currentState = newState;
-            
-            // Update action type based on state
-            UpdateCurrentAction();
-            
-            Debug.Log($"Game state changed from {previousState} to {newState} | Action: {currentAction}");
-        }
-        
-        private void UpdateCurrentAction()
-        {
-            switch (currentState)
-            {
-                case GameState.BuildTiles:
-                    currentAction = ActionType.Idle;
-                    break;
-                case GameState.PlayerTurn:
-                    currentAction = ActionType.Idle;
-                    break;
-                case GameState.PawnMoving:
-                    currentAction = ActionType.MovingPawn;
-                    break;
-                case GameState.WallPlacement:
-                    currentAction = ActionType.PlacingWall;
-                    break;
-                case GameState.GameOver:
-                    currentAction = ActionType.Idle;
-                    break;
-            }
-        }
-
-        public void SetActivePlayer(int playerIndex)
-        {
-            if (playerIndex < 0 || playerIndex >= pawns.Count) 
-            {
-                Debug.LogError($"SetActivePlayer: Invalid playerIndex {playerIndex}. Valid range: 0-{pawns.Count - 1}");
-                return;
-            }
-
-            int previousActivePlayer = activePlayerIndex;
-            
-            // Deactivate all pawns
-            foreach (var pawn in pawns)
-                pawn.isActive = false;
-
-            // Activate selected player
-            activePlayerIndex = playerIndex;
-            pawns[activePlayerIndex].isActive = true;
-            
-            Debug.Log($"SetActivePlayer: Changed from {previousActivePlayer} to {activePlayerIndex}. Pawn.isActive = {pawns[activePlayerIndex].isActive}");
-            
-            // Show valid move highlights for the active pawn
-            ShowValidMovesForActivePawn();
-            
-            // With on-demand pathfinding, no pre-calculation needed
-            // Path validation happens when walls are placed
-            Debug.Log($"Player {activePlayerIndex} turn started - on-demand pathfinding ready");
-            
-            // Trigger UI event for turn change
-            OnPlayerTurnChanged?.Invoke(activePlayerIndex);
-        }
-
-        /// <summary>
-        /// Always show valid move highlights when it's the active pawn's turn
-        /// </summary>
-        private void ShowValidMovesForActivePawn()
-        {
-            var activePawn = GetActivePawn();
-            if (activePawn != null && highlightManager != null && playerController != null)
-            {
-                // Use PlayerController's GetValidMoves which includes jump logic
-                List<Vector2Int> validMoves = playerController.GetValidMoves(activePawn.position);
-                highlightManager.ShowValidMoveHighlights(validMoves, gridSystem);
-                Debug.Log($"Always showing {validMoves.Count} valid move highlights for active pawn {activePlayerIndex} (includes jumps)");
-            }
-        }
-
-        /// <summary>
-        /// Hide valid move highlights (called when turn ends or game state changes)
-        /// </summary>
-        private void HideValidMovesForActivePawn()
-        {
-            if (highlightManager != null)
-            {
-                highlightManager.ClearValidMoveHighlights();
-            }
-        }
-
-        public PawnData GetActivePawn()
-        {
-            if (activePlayerIndex >= 0 && activePlayerIndex < pawns.Count)
-                return pawns[activePlayerIndex];
-            return null;
-        }
+        #region Game Logic
 
         public bool CanMovePawn(int pawnIndex)
         {
@@ -650,159 +381,139 @@ private void OnTileAnimationCompleted()
             // Check if movement is allowed at all
             if (!CanMovePawns()) return false;
             
-            // Normal mode - only active player's pawn can move
-            return pawnIndex == activePlayerIndex;
+            // Use PawnManager to check if this is the active pawn
+            var pawnManager = FindObjectOfType<PawnManager>();
+            return pawnManager?.ActivePawnIndex == pawnIndex;
         }
 
-        public bool CanMovePawns()
+public bool CanMovePawns()
         {
-            if (debugMode) return true;
-            return currentAction == ActionType.Idle;
+            if (debugMode)
+            {
+                Debug.Log("[CanMovePawns] Debug mode - returning true");
+                return true;
+            }
+            
+            // Check if session allows movement
+            var sessionManager = FindObjectOfType<SessionManager>();
+            if (sessionManager != null && !sessionManager.IsSessionActive)
+            {
+                Debug.LogWarning($"[CanMovePawns] Session is not active");
+                return false;
+            }
+            
+            Debug.Log($"[CanMovePawns] All checks passed - session active: {sessionManager?.IsSessionActive ?? false}");
+            return true;
         }
 
-        public bool CanPlaceWalls()
+public bool CanPlaceWalls()
         {
             if (debugMode) return true;
-            return currentAction == ActionType.Idle || currentAction == ActionType.PlacingWall;
+            
+            // Check if session allows wall placement
+            var sessionManager = FindObjectOfType<SessionManager>();
+            if (sessionManager != null && !sessionManager.IsSessionActive)
+            {
+                return false;
+            }
+            
+            // Check if current player has walls
+            return CurrentPlayerHasWalls();
         }
 
         public bool CurrentPlayerHasWalls()
         {
             if (debugMode) return true;
             
-            var activePawn = GetActivePawn();
-            return activePawn != null && activePawn.wallsRemaining > 0;
+            // Use PawnManager to check current player's walls
+            var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+            if (pawnManager != null)
+            {
+                return pawnManager.GetPlayerWallsRemaining(pawnManager.ActivePawnIndex) > 0;
+            }
+            
+            return false;
         }
 
         /// <summary>
         /// Unified pawn movement method - works with any pawn index
         /// </summary>
-        public bool TryMovePawn(int pawnIndex, Vector2Int toPosition)
-        {
-            if (pawnIndex < 0 || pawnIndex >= pawns.Count)
-            {
-                Debug.LogWarning($"Invalid pawn index: {pawnIndex}");
-                return false;
-            }
-
-            // Check if this pawn can be moved
-            if (!CanMovePawn(pawnIndex))
-            {
-                Debug.LogWarning($"Cannot move pawn {pawnIndex} - not their turn");
-                return false;
-            }
-
-            var pawn = pawns[pawnIndex];
-            Vector2Int fromPosition = pawn.position;
-
-            // Use PlayerController's GetValidMoves which includes jump logic
-            List<Vector2Int> validMoves = playerController?.GetValidMoves(fromPosition) ?? new List<Vector2Int>();
-            if (!validMoves.Contains(toPosition))
-            {
-                Debug.LogWarning($"Invalid move from {fromPosition} to {toPosition}");
-                return false;
-            }
-
-            // Transition to movement state (unless in debug mode)
-            if (!debugMode)
-            {
-                ChangeState(GameState.PawnMoving);
-            }
-
-            // Execute the move
-            MovePawn(pawnIndex, toPosition);
-            Debug.Log($"Pawn {pawnIndex} moved from {fromPosition} to {toPosition}");
-
-            // Complete the movement
-            CompletePawnMovement();
-            
-            return true;
-        }
-
-        /// <summary>
-        /// Legacy compatibility method for PlayerControllerV2
-        /// </summary>
         public bool TryMovePawn(Vector2Int fromPosition, Vector2Int toPosition)
         {
-            // Find which pawn is at the from position
-            for (int i = 0; i < pawns.Count; i++)
+            // Use PawnManager to find which pawn is at the from position
+            var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+            if (pawnManager == null)
             {
-                if (pawns[i].position == fromPosition)
-                {
-                    return TryMovePawn(i, toPosition);
-                }
+                Debug.LogError("PawnManager not found! Cannot move pawn.");
+                return false;
             }
-
-            Debug.LogWarning($"No pawn found at position {fromPosition}");
-            return false;
+            
+            // Find pawn at fromPosition
+            var pawn = pawnManager.GetPawnAtPosition(fromPosition);
+            if (pawn == null)
+            {
+                Debug.LogWarning($"No pawn found at position {fromPosition}");
+                return false;
+            }
+            
+            // Get pawn index in the PawnManager system
+            int pawnIndex = pawnManager.Pawns.IndexOf(pawn);
+            if (pawnIndex == -1)
+            {
+                Debug.LogError($"Pawn found at {fromPosition} but not in PawnManager list!");
+                return false;
+            }
+            
+            // Use PawnManager to move the pawn
+            bool success = pawnManager.MovePawn(pawnIndex, toPosition);
+            
+            if (success)
+            {
+                // Update grid system
+                gridSystem.SetTileOccupied(fromPosition, false);
+                gridSystem.SetTileOccupied(toPosition, true);
+                
+                // Fire events
+                OnPawnMoveComplete?.Invoke(pawn, toPosition, true);
+                
+                if (debugMode)
+                    Debug.Log($"Successfully moved pawn from {fromPosition} to {toPosition}");
+            }
+            
+            return success;
         }
 
-        void MovePawn(int pawnIndex, Vector2Int newPosition)
+        private void NextTurn()
         {
-            if (pawnIndex < 0 || pawnIndex >= pawns.Count) return;
-
-            var pawn = pawns[pawnIndex];
-            
-            // Clear old position
-            gridSystem.SetTileOccupied(pawn.position, false);
-            
-            // Update position
-            pawn.position = newPosition;
-            
-            // Set new position as occupied
-            gridSystem.SetTileOccupied(pawn.position, true);
-            
-            // Move avatar if it exists
-            if (pawn.avatar != null)
+            var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+            if (pawnManager != null)
             {
-                Vector3 worldPos = gridSystem.GridToWorldPosition(pawn.position);
-                pawn.avatar.transform.position = worldPos;
+                pawnManager.NextTurn();
+                
+                OnPlayerTurnChanged?.Invoke(pawnManager.ActivePawnIndex);
+                
+                Debug.Log($"Turn advanced to player {pawnManager.ActivePawnIndex}: {pawnManager.ActivePawn?.PlayerData.playerName}");
             }
-
-            if (debugMode)
-                Debug.Log($"Debug Mode: Pawn {pawnIndex} moved to {newPosition}");
-        }
-
-        void CompletePawnMovement()
-        {
-            if (CheckVictory()) return;
-
-            // In debug mode, don't change turns automatically
-            if (debugMode)
-            {
-                Debug.Log("Debug Mode: Turn not changed automatically");
-                return;
-            }
-
-            // Normal mode - end turn and switch to next player
-            EndTurn();
         }
 
         public bool CheckVictory()
         {
-            for (int i = 0; i < pawns.Count; i++)
+            // Use PawnManager instead of legacy pawns list
+            var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+            if (pawnManager == null || pawnManager.PawnCount == 0)
             {
-                var pawn = pawns[i];
-                
-                // Check if pawn reached win position
-                bool hasWon = false;
-                if (pawn.winPosition.x == -1) // Any position on specified row
-                {
-                    hasWon = (pawn.position.y == pawn.winPosition.y);
-                }
-                else if (pawn.winPosition.y == -1) // Any position on specified column
-                {
-                    hasWon = (pawn.position.x == pawn.winPosition.x);
-                }
-                else // Specific position
-                {
-                    hasWon = (pawn.position == pawn.winPosition);
-                }
+                return false;
+            }
 
-                if (hasWon)
+            for (int i = 0; i < pawnManager.PawnCount; i++)
+            {
+                var pawn = pawnManager.GetPawn(i);
+                if (pawn == null) continue;
+                
+                // Check if pawn has won using the PawnManager's victory logic
+                if (pawn.HasWon())
                 {
                     Debug.Log($"VICTORY: Player {i} Wins!");
-                    ChangeState(GameState.GameOver);
                     
                     // Hide highlights when game ends
                     HideValidMovesForActivePawn();
@@ -821,34 +532,41 @@ private void OnTileAnimationCompleted()
         {
             if (CheckVictory()) return;
 
-            // In debug mode, don't change turns automatically
-            if (debugMode)
+            // Use PawnManager system instead of legacy pawns list
+            var pawnManager = FindFirstObjectByType<WallChess.Gameplay.Pawns.PawnManager>();
+            if (pawnManager == null || pawnManager.PawnCount == 0)
             {
-                Debug.Log("Debug Mode: Turn not changed automatically");
+                Debug.LogError("EndTurn() called but PawnManager is not initialized! Cannot switch turns.");
                 return;
             }
 
-            // ENHANCED DEBUG: Track activePlayerIndex changes
-            int previousPlayer = activePlayerIndex;
+            // Track previous player for debugging
+            int previousPlayer = pawnManager.ActivePawnIndex;
             
             // Hide highlights for the current player before switching
             HideValidMovesForActivePawn();
             
-            // Switch to next player
-            int nextPlayer = (activePlayerIndex + 1) % pawns.Count;
-            SetActivePlayer(nextPlayer);
+            // Use PawnManager to advance turns
+            pawnManager.NextTurn();
             
-            // Return to turn state
-            ChangeState(GameState.PlayerTurn);
+            // Trigger turn change event
+            OnPlayerTurnChanged?.Invoke(pawnManager.ActivePawnIndex);
             
-            Debug.Log($"Turn ended. Previous player: {previousPlayer}, New active player: {activePlayerIndex}, Total players: {pawns.Count}");
+            // Update PawnController for turn change
+            var pawnController = GetComponent<PawnController>();
+            if (pawnController != null)
+            {
+                pawnController.HandleTurnChanged();
+            }
+            
+            Debug.Log($"Turn ended. Previous player: {previousPlayer}, New active player: {pawnManager.ActivePawnIndex}, Total players: {pawnManager.PawnCount}");
         }
 
         public bool TryStartWallPlacement()
         {
             if (!CanPlaceWalls())
             {
-                Debug.LogWarning("Cannot place walls - game is in movement state");
+                Debug.LogWarning("Cannot place walls - game session not active or no walls remaining");
                 return false;
             }
 
@@ -858,218 +576,383 @@ private void OnTileAnimationCompleted()
                 return true;
             }
 
-            ChangeState(GameState.WallPlacement);
             Debug.Log("Wall placement mode activated");
             return true;
         }
 
         public void CompleteWallPlacement(bool wallWasPlaced = true)
         {
-            Debug.Log($"CompleteWallPlacement called: wallWasPlaced={wallWasPlaced}, activePlayer={activePlayerIndex}, debugMode={debugMode}");
+            var pawnManager = FindObjectOfType<PawnManager>();
             
-            if (debugMode)
-            {
-                Debug.Log($"Debug Mode: Wall placement completed (success: {wallWasPlaced})");
-                return;
-            }
-
+            Debug.Log($"CompleteWallPlacement called: wallWasPlaced={wallWasPlaced}, activePlayer={pawnManager?.ActivePawnIndex ?? -1}, debugMode={debugMode}");
+            
             if (wallWasPlaced)
             {
-                Debug.Log($"CompleteWallPlacement: Wall placement successful - calling EndTurn() for activePlayer {activePlayerIndex}");
-                EndTurn(); // Switch to next player after successful wall placement
+                Debug.Log($"CompleteWallPlacement: Wall placement successful - calling EndTurn() for activePlayer {pawnManager?.ActivePawnIndex ?? -1}");
+                EndTurn(); // Switch to next player after successful wall placement (even in debug mode)
             }
             else
             {
-                Debug.Log("Wall placement cancelled - returning to player turn");
-                ChangeState(GameState.PlayerTurn);
+                Debug.Log("Wall placement cancelled - remaining in current turn");
             }
         }
 
+        #endregion
+
         #region Event Handlers
+        
         private void OnTileOccupancyChanged(Vector2Int gridPos, bool occupied)
         {
             Debug.Log($"Tile {gridPos} occupancy changed to: {occupied}");
         }
 
-        /// <summary>
-        /// ENHANCED EVENT-DRIVEN: Comprehensive wall placed handler with UI data
-        /// </summary>
         private void OnWallPlaced(GridSystem.WallInfo wallInfo)
         {
-            var activePawn = GetActivePawn();
-            int previousWalls = activePawn?.wallsRemaining ?? 0;
-            
-            Debug.Log($"OnWallPlaced EVENT: Wall {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y}) by Player {activePlayerIndex}");
-            
-            // In debug mode, don't modify game state
-            if (debugMode)
+            // Prevent double processing of the same wall placement
+            if (isProcessingWallPlacement)
             {
-                Debug.Log("Debug Mode: Wall placed but no game state changes");
-                // Still trigger UI events for debug visualization
-                OnWallPlacedComplete?.Invoke(new WallPlacementResult
-                {
-                    wallInfo = wallInfo,
-                    playerIndex = activePlayerIndex,
-                    remainingWalls = previousWalls,
-                    turnEnded = false,
-                    nextPlayerIndex = activePlayerIndex
-                });
+                Debug.LogWarning($"OnWallPlaced: Already processing wall placement, ignoring duplicate call for {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y})");
                 return;
             }
             
-            // Decrement wall count for active player
-            if (activePawn != null)
+            isProcessingWallPlacement = true;
+            
+            try
             {
-                activePawn.wallsRemaining--;
-                Debug.Log($"OnWallPlaced: Player {activePlayerIndex} walls: {previousWalls} → {activePawn.wallsRemaining}");
+                var pawnManager = FindObjectOfType<PawnManager>();
+                int currentPlayerIndex = pawnManager?.ActivePawnIndex ?? -1;
+                
+                Debug.Log($"*** WallChessGameManager.OnWallPlaced CALLED *** Wall {wallInfo.orientation} at ({wallInfo.x}, {wallInfo.y}) by Player {currentPlayerIndex}");
+                
+                // In debug mode, don't modify game state
+                if (debugMode)
+                {
+                    Debug.Log("Debug Mode: Wall placed but no game state changes");
+                    OnWallPlacedComplete?.Invoke(new WallPlacementResult
+                    {
+                        wallInfo = wallInfo,
+                        playerIndex = currentPlayerIndex,
+                        remainingWalls = 0,
+                        turnEnded = false,
+                        nextPlayerIndex = currentPlayerIndex
+                    });
+                    return;
+                }
+                
+                // Use PawnManager system instead of legacy GetActivePawn
+                var activePawn = GetActivePawnFromManager();
+                if (activePawn == null)
+                {
+                    Debug.LogError("OnWallPlaced: No active pawn found - cannot process wall placement");
+                    return;
+                }
+                
+                int previousWalls = activePawn.PlayerData.wallsRemaining;
+                
+                // Decrement wall count for active player
+                if (activePawn.PlayerData.UseWall())
+                {
+                    Debug.Log($"OnWallPlaced: Player {activePawn.PlayerData.playerName} walls: {previousWalls} → {activePawn.PlayerData.wallsRemaining}");
+                }
+                else
+                {
+                    Debug.LogWarning($"OnWallPlaced: Failed to use wall for player {activePawn.PlayerData.playerName}");
+                }
+                
+                // Calculate next player for UI
+                int nextPlayerIndex = (currentPlayerIndex + 1) % (pawnManager?.PawnCount ?? 2);
+                
+                // Trigger comprehensive UI event
+                OnWallPlacedComplete?.Invoke(new WallPlacementResult
+                {
+                    wallInfo = wallInfo,
+                    playerIndex = currentPlayerIndex,
+                    previousWallCount = previousWalls,
+                    remainingWalls = activePawn.PlayerData.wallsRemaining,
+                    turnEnded = true,
+                    nextPlayerIndex = nextPlayerIndex
+                });
+                
+                // CRITICAL: Trigger turn advancement through CompleteWallPlacement
+                Debug.Log("*** OnWallPlaced: About to call CompleteWallPlacement(true) to advance turn ***");
+                CompleteWallPlacement(true);
+                Debug.Log("*** OnWallPlaced: CompleteWallPlacement(true) call completed ***");
             }
-
-            // Calculate next player for UI
-            int nextPlayer = (activePlayerIndex + 1) % pawns.Count;
-            
-            // Create comprehensive result for UI/events
-            var result = new WallPlacementResult
+            finally
             {
-                wallInfo = wallInfo,
-                playerIndex = activePlayerIndex,
-                previousWallCount = previousWalls,
-                remainingWalls = activePawn?.wallsRemaining ?? 0,
-                turnEnded = true,
-                nextPlayerIndex = nextPlayer
-            };
-            
-            // Trigger UI event BEFORE state changes
-            OnWallPlacedComplete?.Invoke(result);
-            
-            // Handle turn transition - this will change activePlayerIndex
-            Debug.Log($"OnWallPlaced: Ending turn - {activePlayerIndex} → {nextPlayer}");
-            CompleteWallPlacement(true);
+                isProcessingWallPlacement = false;
+            }
         }
 
+        private void OnTileAnimationCompleted()
+        {
+            Debug.Log("Tile animation completed");
+            // Handle tile animation completion if needed
+        }
+        
+        
         private void OnGridCleared()
         {
             Debug.Log("Grid cleared");
-            foreach (var pawn in pawns)
-            {
-                pawn.wallsRemaining = wallsPerPlayer;
-            }
+            // Grid cleared - PawnManager will handle pawn state reset
         }
+
         #endregion
 
-        #region Public API - Legacy Compatibility
-        // Legacy properties for PlayerControllerV2 compatibility
-        public Vector2Int playerPosition => pawns.Count > 0 ? pawns[0].position : Vector2Int.zero;
-        public Vector2Int opponentPosition => pawns.Count > 1 ? pawns[1].position : Vector2Int.zero;
-        public int playerWallsRemaining => pawns.Count > 0 ? pawns[0].wallsRemaining : 0;
-        public int opponentWallsRemaining => pawns.Count > 1 ? pawns[1].wallsRemaining : 0;
+        #region Session State Integration
         
-        // Legacy methods
-        public GameObject GetPlayerAvatar() => pawns.Count > 0 ? pawns[0].avatar : null;
-        public GameObject GetOpponentAvatar() => pawns.Count > 1 ? pawns[1].avatar : null;
+        /// <summary>
+        /// Called when session is ready for gameplay
+        /// </summary>
+private void OnSessionReady()
+        {
+            LogInfo("Session ready - gameplay can begin");
+            
+            // Ensure pawn controller is properly initialized and can handle input
+            var pawnController = GetComponent<PawnController>();
+            if (pawnController != null)
+            {
+                pawnController.HandleTurnChanged();
+                LogInfo("PawnController refreshed for session ready state");
+            }
+        }
         
-        // Legacy state checking methods for backward compatibility
-        public bool IsPlayerTurn() => debugMode || activePlayerIndex == 0;
-        public bool IsOpponentTurn() => debugMode || activePlayerIndex == 1;
-        public bool IsInMovementState() => currentAction == ActionType.MovingPawn;
+        /// <summary>
+        /// Called when session state changes
+        /// </summary>
+        private void OnSessionStateChanged(string newStateName)
+        {
+            LogInfo($"Session state changed to: {newStateName}");
+        }
+        
+        /// <summary>
+        /// Called when session is completed
+        /// </summary>
+        private void OnSessionCompleted(int winnerIndex)
+        {
+            LogInfo($"Session completed - winner: {(winnerIndex >= 0 ? $"Player {winnerIndex}" : "None")}");
+        }
+        
+        private void HandlePawnMoveComplete(WallChess.Gameplay.Pawns.Pawn pawn, Vector2Int newPosition, bool wasSuccessful)
+        {
+            if (!wasSuccessful) return;
+            
+            // Clear current highlights
+            if (highlightManager != null)
+            {
+                highlightManager.ClearValidMoveHighlights();
+            }
+            
+            // Check for victory
+            if (CheckVictoryCondition(pawn))
+            {
+                return;
+            }
+            
+            // End current turn and move to next player
+            EndTurn();
+        }
+
+        #endregion
+
+        #region Helper Methods
+        
+        /// <summary>
+        /// Get the active pawn from PawnManager (new system)
+        /// </summary>
+        public WallChess.Gameplay.Pawns.Pawn GetActivePawnFromManager()
+        {
+            var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+            return pawnManager?.ActivePawn;
+        }
+
+        /// <summary>
+        /// Always show valid move highlights when it's the active pawn's turn
+        /// </summary>
+        private void ShowValidMovesForActivePawn()
+        {
+            // Use PawnManager instead of legacy GetActivePawn
+            var activePawn = GetActivePawnFromManager();
+            if (activePawn != null && highlightManager != null && GetComponent<PawnController>() != null)
+            {
+                // Use PlayerController's GetValidMoves which includes jump logic
+                List<Vector2Int> validMoves = GetComponent<PawnController>().GetValidMoves(activePawn.CurrentPosition);
+                highlightManager.ShowValidMoveHighlights(validMoves, gridSystem);
+                Debug.Log($"Always showing {validMoves.Count} valid move highlights for active pawn {activePawn.PlayerData.playerIndex} (includes jumps)");
+            }
+        }
+
+        /// <summary>
+        /// Hide valid move highlights (called when turn ends or game state changes)
+        /// </summary>
+        private void HideValidMovesForActivePawn()
+        {
+            if (highlightManager != null)
+            {
+                highlightManager.ClearValidMoveHighlights();
+            }
+        }
+
+        private bool CheckVictoryCondition(WallChess.Gameplay.Pawns.Pawn pawn)
+        {
+            if (pawn == null) return false;
+            
+            if (pawn.HasWon())
+            {
+                OnPlayerVictory?.Invoke(pawn.PlayerData.playerIndex);
+                Debug.Log($"Victory! {pawn.PlayerData.playerName} has won the game!");
+                return true;
+            }
+            
+            return false;
+        }
+
+        private void LogInfo(string message)
+        {
+            if (debugMode) Debug.Log($"[WallChessGameManager] {message}");
+        }
+        
+        #endregion
+
+        #region Legacy Compatibility API
+        
+        // Legacy properties updated to use PawnManager system
+        public Vector2Int playerPosition
+        {
+            get
+            {
+                var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+                var pawn = pawnManager?.GetPawn(0);
+                return pawn?.CurrentPosition ?? Vector2Int.zero;
+            }
+        }
+        
+        public Vector2Int opponentPosition
+        {
+            get
+            {
+                var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+                var pawn = pawnManager?.GetPawn(1);
+                return pawn?.CurrentPosition ?? Vector2Int.zero;
+            }
+        }
+        
+        public int playerWallsRemaining
+        {
+            get
+            {
+                var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+                return pawnManager?.GetPlayerWallsRemaining(0) ?? 0;
+            }
+        }
+        
+        public int opponentWallsRemaining
+        {
+            get
+            {
+                var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+                return pawnManager?.GetPlayerWallsRemaining(1) ?? 0;
+            }
+        }
+        
+        // Legacy methods updated to use PawnManager system
+        public GameObject GetPlayerAvatar()
+        {
+            var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+            var pawn = pawnManager?.GetPawn(0);
+            return pawn?.gameObject;
+        }
+        
+        public GameObject GetOpponentAvatar()
+        {
+            var pawnManager = FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>();
+            var pawn = pawnManager?.GetPawn(1);
+            return pawn?.gameObject;
+        }
+        
+        // Legacy state checking methods for backward compatibility 
+        public bool IsPlayerTurn() => debugMode || (FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>()?.ActivePawn?.PlayerData.playerType == PlayerType.Human);
+        public bool IsOpponentTurn() => debugMode || (FindObjectOfType<WallChess.Gameplay.Pawns.PawnManager>()?.ActivePawn?.PlayerData.playerType == PlayerType.AI);
+        public bool IsInMovementState() => CanMovePawns();
         
         // Legacy current player method (returns old enum values) 
-        public int GetCurrentPlayerLegacy() => activePlayerIndex;
+        public int GetCurrentPlayerLegacy()
+        {
+            var pawnManager = FindObjectOfType<PawnManager>();
+            return pawnManager?.ActivePawnIndex ?? 0;
+        }
         
-        // Legacy pawn type enum for compatibility
-        public enum PawnType { Player, Opponent }
-        public PawnType GetCurrentPlayer() => activePlayerIndex == 0 ? PawnType.Player : PawnType.Opponent;
+        public PawnType GetCurrentPlayer()
+        {
+            var pawnManager = FindObjectOfType<PawnManager>();
+            int activeIndex = pawnManager?.ActivePawnIndex ?? 0;
+            return activeIndex == 0 ? PawnType.Player : PawnType.Opponent;
+        }
         
         // Core API
         public GridSystem GetGridSystem() => gridSystem;
-        public PlayerControllerV2 GetPlayerController() => playerController;
         public WallManager GetWallManager() => wallManager;
         public HighlightManager GetHighlightManager() => highlightManager;
         public WallValidator GetWallValidator() => wallValidator;
         
-        // New pawn system API
-        public int GetActivePawnIndex() => activePlayerIndex;
-        public Vector2Int GetPawnPosition(int pawnIndex)
+        // Missing methods for backward compatibility
+public WallChess.Core.GameState GetCurrentState()
         {
-            if (pawnIndex >= 0 && pawnIndex < pawns.Count)
-                return pawns[pawnIndex].position;
-            return Vector2Int.zero;
+            // Delegate to session manager for state
+            var sessionManager = FindObjectOfType<SessionManager>();
+            if (sessionManager != null && sessionManager.IsSessionActive)
+            {
+                // Return active gameplay state when session is running
+                return WallChess.Core.GameState.PlayerTurn;
+            }
+            return WallChess.Core.GameState.GameStart;
         }
         
-        public GameObject GetPawnAvatar(int pawnIndex)
+public void ChangeState(WallChess.Core.GameState newState)
         {
-            if (pawnIndex >= 0 && pawnIndex < pawns.Count)
-                return pawns[pawnIndex].avatar;
-            return null;
+            // State management now handled by SessionStateManager and Player Action FSMs
+            // This method kept for backward compatibility but does nothing
+            Debug.Log($"WallChessGameManager.ChangeState({newState}) - delegated to state managers");
         }
-        #endregion
-
-        #region Action Validation
+        
+        public WallChess.Gameplay.Pawns.Pawn GetActivePawn()
+        {
+            var pawnManager = FindObjectOfType<PawnManager>();
+            return pawnManager?.ActivePawn;
+        }
+        
         public bool CanInitiateMove()
         {
-            return CanMovePawns() && currentAction != ActionType.MovingPawn;
+            return CanMovePawns();
         }
-
+        
         public bool CanInitiateWallPlacement()
         {
-            return CanPlaceWalls() && currentAction != ActionType.MovingPawn;
+            return CanPlaceWalls();
         }
-
-        public GameState GetCurrentState() => currentState;
-        public ActionType GetCurrentAction() => currentAction;
         
-        public bool IsActionBlocked()
+public void CleanupGameSession()
         {
-            return currentState == GameState.GameOver;
+            // Clear grid if exists
+            if (gridSystem != null)
+            {
+                gridSystem.ClearGrid();
+            }
+            
+            // Clear highlights
+            if (highlightManager != null)
+            {
+                highlightManager.ClearAllHighlights();
+            }
+            
+            Debug.Log("Game session cleaned up");
         }
-        #endregion
-
-        #region Grid Configuration Updates
-        public void UpdateGridConfiguration(int newGridSize = -1, float newTileSize = -1, float newTileGap = -1)
+        
+        public void UpdateGridConfiguration()
         {
-            bool changed = false;
-            
-            if (newGridSize > 0 && newGridSize != gridSize)
+            if (gridSystem != null)
             {
-                if (gameSettings != null)
-                {
-                    gameSettings.gridSize = newGridSize;
-                    changed = true;
-                }
-                else
-                {
-                    Debug.LogError("Cannot update grid size: GameSettings not assigned!");
-                }
-            }
-            
-            if (newTileSize > 0 && newTileSize != tileSize)
-            {
-                if (gridSettings != null)
-                {
-                    gridSettings.tileSize = newTileSize;
-                    changed = true;
-                }
-                else
-                {
-                    Debug.LogError("Cannot update tile size: GridSettings not assigned!");
-                }
-            }
-            
-            if (newTileGap >= 0 && newTileGap != tileGap)
-            {
-                if (gridSettings != null)
-                {
-                    gridSettings.tileGap = newTileGap;
-                    changed = true;
-                }
-                else
-                {
-                    Debug.LogError("Cannot update tile gap: GridSettings not assigned!");
-                }
-            }
-
-            if (changed && gridSystem != null)
-            {
-                GridSystem.GridSettings newSettings = new GridSystem.GridSettings
+                GridSystem.GridSettings gridSettings = new GridSystem.GridSettings
                 {
                     gridSize = this.gridSize,
                     tileSize = this.tileSize,
@@ -1078,33 +961,78 @@ private void OnTileAnimationCompleted()
                     wallHeight = this.wallHeight
                 };
                 
-                gridSystem.ReconfigureGrid(newSettings);
-                Debug.Log($"Grid reconfigured: {gridSize}x{gridSize}, tileSize={tileSize}, gap={tileGap}");
-                
-                // Reinitialize pawn system with new grid size
-                InitializePlayerPawnSystem();
+                gridSystem.ReconfigureGrid(gridSettings);
+                Debug.Log("Grid configuration updated");
             }
         }
+        
+public WallChess.Core.ActionType GetCurrentAction()
+        {
+            // Action state now handled by Player Action FSMs
+            // Check if any pawn has an active action state
+            var pawnController = GetComponent<PawnController>();
+            if (pawnController != null)
+            {
+                // Could check pawn controller's action state machine here
+                return WallChess.Core.ActionType.Idle;
+            }
+            return WallChess.Core.ActionType.Idle;
+        }
+        
+public void SetCurrentAction(WallChess.Core.ActionType action)
+        {
+            // Action state now handled by Player Action FSMs
+            // This method kept for backward compatibility but does nothing
+            Debug.Log($"WallChessGameManager.SetCurrentAction({action}) - delegated to Player Action FSMs");
+        }
+        
+        
+        // New pawn system API
+        public int GetActivePawnIndex()
+        {
+            var pawnManager = FindObjectOfType<PawnManager>();
+            return pawnManager?.ActivePawnIndex ?? 0;
+        }
+
+        public Vector2Int GetPawnPosition(int pawnIndex)
+        {
+            var pawnManager = FindObjectOfType<PawnManager>();
+            var pawn = pawnManager?.GetPawn(pawnIndex);
+            return pawn?.CurrentPosition ?? Vector2Int.zero;
+        }
+        
+        public GameObject GetPawnAvatar(int pawnIndex)
+        {
+            var pawnManager = FindObjectOfType<PawnManager>();
+            var pawn = pawnManager?.GetPawn(pawnIndex);
+            return pawn?.gameObject;
+        }
+
         #endregion
 
-        void OnDestroy()
+        #region Context Menu Debug Methods
+
+        [ContextMenu("Debug/Test Pawn System")]
+        private void Ctx_TestPawnSystem()
         {
-            // Unsubscribe from events
-            if (gridSystem != null)
-            {
-                gridSystem.OnTileOccupancyChanged -= OnTileOccupancyChanged;
-                gridSystem.OnWallPlaced -= OnWallPlaced;
-                gridSystem.OnGridCleared -= OnGridCleared;
-            }
-            
-            // Unsubscribe from animation events
-            if (tileAnimationController != null)
-            {
-                tileAnimationController.OnTileAnimationCompleted -= OnTileAnimationCompleted;
-            }
-            
-            // WallValidator cleanup no longer needed with new on-demand system
-            // The new WallValidator doesn't maintain state that needs cleanup
+            var pawnManager = FindObjectOfType<PawnManager>();
+            Debug.Log($"Active Player: {pawnManager?.ActivePawnIndex ?? -1}, Total Pawns: {pawnManager?.PawnCount ?? 0}");
         }
+
+        [ContextMenu("Debug/Toggle Debug Mode")]
+        private void Ctx_ToggleDebugMode()
+        {
+            if (debugSettings != null)
+            {
+                debugSettings.debugMode = !debugSettings.debugMode;
+                Debug.Log($"Debug Mode {(debugMode ? "ENABLED" : "DISABLED")} - Any pawn can be moved");
+            }
+            else
+            {
+                Debug.LogWarning("Debug Settings ScriptableObject not assigned!");
+            }
+        }
+
+        #endregion
     }
 }

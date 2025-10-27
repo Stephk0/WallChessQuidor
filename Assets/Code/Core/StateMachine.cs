@@ -1,4 +1,5 @@
 using UnityEngine;
+// Removed unused import
 using System.Collections.Generic;
 
 namespace WallChess.Core
@@ -19,7 +20,12 @@ namespace WallChess.Core
         /// <summary>
         /// Current active state
         /// </summary>
-        public IState CurrentState => currentState;
+                
+        /// <summary>
+        /// Event triggered when state changes
+        /// </summary>
+        public System.Action<IState, IState> OnStateChanged;
+public IState CurrentState => currentState;
         
         /// <summary>
         /// Register a state with the state machine
@@ -54,7 +60,7 @@ namespace WallChess.Core
             return false;
         }
         
-        /// <summary>
+                /// <summary>
         /// Transition to a specific state instance
         /// </summary>
         public bool ChangeState(IState newState)
@@ -65,6 +71,9 @@ namespace WallChess.Core
                 return false;
             }
             
+            // Store previous state for event
+            IState previousState = currentState;
+            
             // Exit current state
             if (currentState != null)
             {
@@ -74,7 +83,7 @@ namespace WallChess.Core
             }
             
             // Change to new state
-            var previousStateName = currentState?.StateName ?? "None";
+            var previousStateName = previousState?.StateName ?? "None";
             currentState = newState;
             currentStateName = currentState.StateName;
             
@@ -83,6 +92,9 @@ namespace WallChess.Core
             
             // Enter new state
             currentState.OnEnter();
+            
+            // Trigger state change event
+            OnStateChanged?.Invoke(previousState, newState);
             
             return true;
         }

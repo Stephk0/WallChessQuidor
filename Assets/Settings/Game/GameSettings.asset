@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 74ee1363cd04f4a489708c2ef6f7f5e9, type: 3}
   m_Name: GameSettings
   m_EditorClassIdentifier: 
-  gridSize: 16
+  gridSize: 7
   wallsPerPlayer: 9
   numberOfPlayers: 2

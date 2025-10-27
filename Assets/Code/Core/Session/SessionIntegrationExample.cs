@@ -13,7 +13,7 @@ namespace WallChess.Core
         [SerializeField] private SessionManager sessionManager;
         [SerializeField] private WallChessGameManager gameManager;
         [SerializeField] private AIOpponent aiOpponent;
-        [SerializeField] private PlayerControllerV2 playerController;
+        [SerializeField] private PawnController pawnController;
         
         [Header("Settings")]
         [SerializeField] private bool startSessionOnPlay = true;
@@ -148,15 +148,15 @@ namespace WallChess.Core
             LogInfo($"Turn started: Player {playerIndex} ({playerType})");
             
             // Example: Update UI turn indicator, enable/disable controls, etc.
-            if (playerType == PlayerType.Human && playerController != null)
+            if (playerType == PlayerType.Human && pawnController != null)
             {
                 // Enable player controls
-                playerController.enabled = true;
+                pawnController.enabled = true;
             }
             else if (playerType == PlayerType.AI && aiOpponent != null)
             {
                 // AI will handle its own turn
-                playerController.enabled = false;
+                pawnController.enabled = false;
             }
         }
         

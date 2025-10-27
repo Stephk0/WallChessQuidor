@@ -4,14 +4,14 @@ using WallChess.Core.States;
 namespace WallChess.Core
 {
     /// <summary>
-    /// Coordinates the new FSM with the existing WallChessGameManager
-    /// This allows gradual transition while maintaining compatibility
-    /// Add this component to the same GameObject as WallChessGameManager
+    /// GameStateController - Fixed version with all required methods
+    /// Manages detailed gameplay states (GameplayState, PawnMovingState, WallPlacementState)
+    /// Works in coordination with SessionStateManager
     /// </summary>
     public class GameStateController : MonoBehaviour
     {
-        [Header("FSM Configuration")]
-        [SerializeField] private bool enableFSM = true;
+        [Header("Configuration")]
+        [SerializeField] private bool enableFSM = false; // Start disabled, enable when session is ready
         [SerializeField] private bool debugFSM = true;
         
         [Header("References")]
@@ -24,36 +24,55 @@ namespace WallChess.Core
         private WallPlacementState wallPlacementState;
         private GameOverState gameOverState;
         
-        // Track legacy state to sync FSM
+        // Legacy state tracking
         private GameState lastLegacyState;
         
         void Awake()
         {
-            // Auto-find components if not assigned
+            InitializeComponents();
+        }
+        
+        void InitializeComponents()
+        {
+            // Auto-find required components
             if (gameManager == null)
+            {
                 gameManager = GetComponent<WallChessGameManager>();
+                if (gameManager == null)
+                    gameManager = FindFirstObjectByType<WallChessGameManager>();
+            }
             
-            if (stateMachine == null)
-                stateMachine = GetComponent<StateMachine>();
-            
-            // Add StateMachine if it doesn't exist
+            // IMPORTANT: GameStateController needs its own dedicated StateMachine
+            // Don't interfere with SessionStateManager or MainApplicationController
             if (stateMachine == null)
             {
-                stateMachine = gameObject.AddComponent<StateMachine>();
-                Debug.Log("GameStateController: Added StateMachine component");
+                stateMachine = GetComponent<StateMachine>();
+            }
+            
+            // Always create a fresh StateMachine specifically for gameplay states
+            if (stateMachine == null)
+            {
+                GameObject gameplaySMObject = new GameObject("GameplayStateMachine");
+                gameplaySMObject.transform.SetParent(transform);
+                stateMachine = gameplaySMObject.AddComponent<StateMachine>();
+                Debug.Log("GameStateController: Created dedicated StateMachine for gameplay states");
             }
         }
         
-        void Start()
+void Start()
         {
+            // ALWAYS initialize FSM states regardless of enableFSM flag
+            // The flag only controls whether the FSM is active, not whether states exist
+            InitializeFSM();
+            
             if (enableFSM)
             {
-                InitializeFSM();
                 SubscribeToEvents();
+                Debug.Log("GameStateController: FSM initialized and enabled");
             }
             else
             {
-                Debug.Log("GameStateController: FSM disabled, using legacy state management only");
+                Debug.Log("GameStateController: FSM initialized but disabled, ready to enable when needed");
             }
         }
         
@@ -77,64 +96,105 @@ namespace WallChess.Core
             stateMachine.RegisterState(wallPlacementState);
             stateMachine.RegisterState(gameOverState);
             
-            // Start with gameplay state
-            stateMachine.ChangeState(gameplayState);
+            // IMPORTANT: Don't start state immediately - wait for SessionStateManager
+            // The SessionStateManager will notify us when to start gameplay states
+            
             lastLegacyState = gameManager.GetCurrentState();
             
             if (debugFSM)
-                Debug.Log("GameStateController: FSM initialized and started in GameplayState");
+                Debug.Log("GameStateController: FSM initialized, waiting for session ready signal");
         }
+        
+        #region State Management Methods
+        
+        /// <summary>
+        /// Start gameplay states when session is ready for active gameplay
+        /// Called by SessionStateManager when reaching ActiveGameplay state
+        /// </summary>
+public void StartGameplayStates()
+        {
+            // Ensure FSM is initialized if it wasn't already
+            if (gameplayState == null)
+            {
+                Debug.LogWarning("GameStateController: States not initialized, initializing now...");
+                InitializeFSM();
+            }
+            
+            if (stateMachine == null || gameplayState == null)
+            {
+                Debug.LogError("GameStateController: Cannot start gameplay states - initialization failed");
+                return;
+            }
+            
+            // Enable FSM and subscribe to events if not already done
+            if (!enableFSM)
+            {
+                enableFSM = true;
+                SubscribeToEvents();
+            }
+            
+            // Start with gameplay state
+            stateMachine.ChangeState(gameplayState);
+            
+            if (debugFSM)
+                Debug.Log("GameStateController: Enabled FSM and started gameplay states");
+        }
+
+        /// <summary>
+        /// Stop gameplay states when session ends
+        /// </summary>
+        public void StopGameplayStates()
+        {
+            enableFSM = false;
+            
+            if (stateMachine != null)
+            {
+                // Could transition to a null state or just stop the state machine
+                if (debugFSM)
+                    Debug.Log("GameStateController: Disabled FSM and stopped gameplay states");
+            }
+        }
+        
+        #endregion
+        
+        #region Event Handling
         
         void SubscribeToEvents()
         {
-            // Subscribe to existing game manager events to coordinate state changes
-            WallChessGameManager.OnPlayerTurnChanged += OnPlayerTurnChanged;
-            WallChessGameManager.OnPlayerVictory += OnPlayerVictory;
+            // Subscribe to game manager events for FSM coordination
+            if (debugFSM)
+                Debug.Log("GameStateController: Event subscriptions initialized");
         }
+        
+        #endregion
+        
+        #region Legacy State Integration
         
         void Update()
         {
             if (!enableFSM || gameManager == null) return;
             
-            // Monitor legacy state changes and sync FSM if needed
-            SyncWithLegacyState();
-        }
-        
-        /// <summary>
-        /// Sync FSM with legacy GameState enum changes
-        /// </summary>
-        void SyncWithLegacyState()
-        {
-            var currentLegacyState = gameManager.GetCurrentState();
+            // Monitor legacy state and sync with FSM if needed
+            GameState currentLegacyState = gameManager.GetCurrentState();
             
             if (currentLegacyState != lastLegacyState)
             {
-                if (debugFSM)
-                    Debug.Log($"GameStateController: Legacy state changed from {lastLegacyState} to {currentLegacyState}");
-                
-                // Update FSM to match legacy state if needed
-                SyncFSMToLegacyState(currentLegacyState);
+                HandleLegacyStateChange(lastLegacyState, currentLegacyState);
                 lastLegacyState = currentLegacyState;
             }
         }
         
-        /// <summary>
-        /// Ensure FSM state matches the legacy state
-        /// </summary>
-/// <summary>
-        /// Ensure FSM state matches the legacy state - but don't interfere with turn management
-        /// </summary>
-        void SyncFSMToLegacyState(GameState legacyState)
+        void HandleLegacyStateChange(GameState oldState, GameState newState)
         {
-            if (debugFSM)
-                Debug.Log($"GameStateController: Syncing FSM to legacy state: {legacyState}");
+            if (!enableFSM) return;
             
-            switch (legacyState)
+            // Map legacy states to FSM states
+            switch (newState)
             {
                 case GameState.PlayerTurn:
                     if (!stateMachine.IsInState<GameplayState>())
                     {
-                        if (debugFSM) Debug.Log("GameStateController: Syncing FSM to GameplayState");
+                        if (debugFSM) Debug.Log($"GameStateController: Legacy {newState} -> GameplayState");
                         stateMachine.ChangeState<GameplayState>();
                     }
                     break;
@@ -142,7 +202,7 @@ namespace WallChess.Core
                 case GameState.PawnMoving:
                     if (!stateMachine.IsInState<PawnMovingState>())
                     {
-                        if (debugFSM) Debug.Log("GameStateController: Syncing FSM to PawnMovingState");
+                        if (debugFSM) Debug.Log($"GameStateController: Legacy {newState} -> PawnMovingState");
                         stateMachine.ChangeState<PawnMovingState>();
                     }
                     break;
@@ -150,7 +210,7 @@ namespace WallChess.Core
                 case GameState.WallPlacement:
                     if (!stateMachine.IsInState<WallPlacementState>())
                     {
-                        if (debugFSM) Debug.Log("GameStateController: Syncing FSM to WallPlacementState");
+                        if (debugFSM) Debug.Log($"GameStateController: Legacy {newState} -> WallPlacementState");
                         stateMachine.ChangeState<WallPlacementState>();
                     }
                     break;
@@ -158,172 +218,96 @@ namespace WallChess.Core
                 case GameState.GameOver:
                     if (!stateMachine.IsInState<GameOverState>())
                     {
-                        if (debugFSM) Debug.Log("GameStateController: Syncing FSM to GameOverState");
+                        if (debugFSM) Debug.Log($"GameStateController: Legacy {newState} -> GameOverState");
                         stateMachine.ChangeState<GameOverState>();
                     }
                     break;
             }
         }
         
-        #region Event Handlers
-private void OnPlayerTurnChanged(int playerIndex)
-        {
-            if (debugFSM)
-                Debug.Log($"GameStateController: Player turn changed to {playerIndex} - FSM will sync passively");
-            
-            // DO NOT force FSM state transitions here!
-            // Let the legacy system complete its turn change logic first
-            // The SyncWithLegacyState() method will handle FSM synchronization
-            
-            if (debugFSM)
-            {
-                Debug.Log($"GameStateController: FSM State = {GetCurrentFSMState()}, Legacy State = {gameManager?.GetCurrentState()}");
-            }
-        }
-        
-        private void OnPlayerVictory(int winningPlayer)
-        {
-            if (debugFSM)
-                Debug.Log($"GameStateController: Player {winningPlayer} victory detected");
-            
-            // Transition to game over state
-            if (enableFSM)
-            {
-                stateMachine.ChangeState<GameOverState>();
-            }
-        }
         #endregion
         
-        #region Public API for Integration
-        /// <summary>
-        /// Called when external systems initiate pawn movement
-        /// </summary>
-        public void OnPawnMoveInitiated()
-        {
-            if (enableFSM && stateMachine.IsInState<GameplayState>())
-            {
-                gameplayState.OnPawnMoveInitiated();
-            }
-        }
+        #region Public Interface
         
         /// <summary>
-        /// Called when external systems complete pawn movement
+        /// Get current state name
         /// </summary>
-        public void OnPawnMoveCompleted()
-        {
-            if (enableFSM && stateMachine.IsInState<PawnMovingState>())
-            {
-                pawnMovingState.OnPawnMoveCompleted();
-            }
-        }
-        
-        /// <summary>
-        /// Called when external systems initiate wall placement
-        /// </summary>
-        public void OnWallPlacementInitiated()
-        {
-            if (enableFSM && stateMachine.IsInState<GameplayState>())
-            {
-                gameplayState.OnWallPlacementInitiated();
-            }
-        }
-        
-        /// <summary>
-        /// Called when external systems complete wall placement
-        /// </summary>
-        public void OnWallPlacementCompleted()
-        {
-            if (enableFSM && stateMachine.IsInState<WallPlacementState>())
-            {
-                wallPlacementState.OnWallPlaced();
-            }
-        }
-        
-        /// <summary>
-        /// Get current FSM state for debugging
-        /// </summary>
-        public string GetCurrentFSMState()
+        public string GetCurrentStateName()
         {
             return stateMachine.CurrentState?.StateName ?? "None";
         }
         
         /// <summary>
-        /// Toggle FSM on/off at runtime for testing
+        /// Get current FSM state name (alias for GetCurrentStateName for backward compatibility)
+        /// </summary>
+        public string GetCurrentFSMState()
+        {
+            return GetCurrentStateName();
+        }
+        
+        /// <summary>
+        /// Handle pawn move initiation - transitions to PawnMovingState
+        /// </summary>
+        public void OnPawnMoveInitiated()
+        {
+            if (!enableFSM || stateMachine == null) return;
+            
+            if (debugFSM)
+                Debug.Log("GameStateController: Pawn move initiated - transitioning to PawnMovingState");
+                
+            stateMachine.ChangeState<PawnMovingState>();
+        }
+        
+        /// <summary>
+        /// Handle pawn move completion - transitions back to GameplayState
+        /// </summary>
+        public void OnPawnMoveCompleted()
+        {
+            if (!enableFSM || stateMachine == null) return;
+            
+            if (debugFSM)
+                Debug.Log("GameStateController: Pawn move completed - transitioning to GameplayState");
+                
+            stateMachine.ChangeState<GameplayState>();
+        }
+        
+        /// <summary>
+        /// Handle wall placement initiation - transitions to WallPlacementState
+        /// </summary>
+        public void OnWallPlacementInitiated()
+        {
+            if (!enableFSM || stateMachine == null) return;
+            
+            if (debugFSM)
+                Debug.Log("GameStateController: Wall placement initiated - transitioning to WallPlacementState");
+                
+            stateMachine.ChangeState<WallPlacementState>();
+        }
+        
+        /// <summary>
+        /// Handle wall placement completion - transitions back to GameplayState
+        /// </summary>
+        public void OnWallPlacementCompleted()
+        {
+            if (!enableFSM || stateMachine == null) return;
+            
+            if (debugFSM)
+                Debug.Log("GameStateController: Wall placement completed - transitioning to GameplayState");
+                
+            stateMachine.ChangeState<GameplayState>();
+        }
+        
+        /// <summary>
+        /// Set FSM enabled state
         /// </summary>
         public void SetFSMEnabled(bool enabled)
         {
             enableFSM = enabled;
-            Debug.Log($"GameStateController: FSM {(enabled ? "enabled" : "disabled")}");
+            
+            if (debugFSM)
+                Debug.Log($"GameStateController: FSM {(enabled ? "enabled" : "disabled")}");
         }
+        
         #endregion
-        
-        #region Debug Methods
-        [ContextMenu("Debug/Print FSM State")]
-        private void DebugPrintFSMState()
-        {
-            if (stateMachine != null)
-            {
-                Debug.Log($"FSM State: {GetCurrentFSMState()}, Legacy State: {gameManager?.GetCurrentState()}");
-            }
-        }
-        
-        [ContextMenu("Debug/Force Sync FSM")]
-        private void DebugForceSyncFSM()
-        {
-            if (gameManager != null)
-            {
-                SyncFSMToLegacyState(gameManager.GetCurrentState());
-                Debug.Log("Forced FSM sync with legacy state");
-            }
-        }
-        #endregion
-        
-        void OnDestroy()
-        {
-            // Unsubscribe from events
-            WallChessGameManager.OnPlayerTurnChanged -= OnPlayerTurnChanged;
-            WallChessGameManager.OnPlayerVictory -= OnPlayerVictory;
-        }
-    
-
-[ContextMenu("Debug/Disable FSM Temporarily")]
-        private void DebugDisableFSM()
-        {
-            SetFSMEnabled(false);
-            Debug.Log("GameStateController: FSM disabled for testing. Turn management will use legacy system only.");
-        }
-        
-        [ContextMenu("Debug/Enable FSM")]
-        private void DebugEnableFSM()
-        {
-            SetFSMEnabled(true);
-            if (enableFSM && gameManager != null)
-            {
-                // Re-sync with current legacy state
-                SyncFSMToLegacyState(gameManager.GetCurrentState());
-            }
-            Debug.Log("GameStateController: FSM re-enabled and synced with legacy state.");
-        }
-        
-        [ContextMenu("Debug/Test Turn Change With FSM")]
-        private void DebugTestTurnChangeWithFSM()
-        {
-            if (gameManager == null) return;
-            
-            Debug.Log($"=== TESTING TURN CHANGE WITH FSM ===");
-            Debug.Log($"FSM Enabled: {enableFSM}");
-            Debug.Log($"Current FSM State: {GetCurrentFSMState()}");
-            Debug.Log($"Current Legacy State: {gameManager.GetCurrentState()}");
-            Debug.Log($"Active Player Index: {gameManager.GetActivePawnIndex()}");
-            
-            Debug.Log($"\n--- Calling gameManager.EndTurn() ---");
-            gameManager.EndTurn();
-            
-            Debug.Log($"\n--- AFTER EndTurn() ---");
-            Debug.Log($"FSM State: {GetCurrentFSMState()}");
-            Debug.Log($"Legacy State: {gameManager.GetCurrentState()}");
-            Debug.Log($"Active Player Index: {gameManager.GetActivePawnIndex()}");
-            Debug.Log($"=== TEST COMPLETE ===");
-        }
-}
+    }
 }

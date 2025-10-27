@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using WallChess.Core;
 
 namespace WallChess.Core.Session
 {
@@ -308,10 +309,13 @@ private bool ExecutePawnMoveViaGameManager(WallChessGameManager gameManager, Pla
         {
             if (moveData is Vector2Int newPosition)
             {
-                LogInfo($"Executing pawn move for Player {player.playerIndex} to {newPosition}");
+                                LogInfo($"Executing pawn move for Player {player.playerIndex} to {newPosition}");
+                
+                // Get current pawn position first 
+                Vector2Int currentPosition = player?.currentPosition ?? Vector2Int.zero;
                 
                 // Use the existing game manager's pawn movement system
-                bool success = gameManager.TryMovePawn(player.playerIndex, newPosition);
+                bool success = gameManager.TryMovePawn(currentPosition, newPosition);
                 
                 if (success)
                 {

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using WallChess.Core;
 
 namespace WallChess.Grid
 {
@@ -205,7 +206,7 @@ namespace WallChess.Grid
             
             foreach (var pawn in gameManager.pawns)
             {
-                if (!HasPathToTargetSide(gridSystem, pawn, gameManager.gridSize))
+                if (!HasPathToTargetSide(gridSystem, pawn.PlayerData, gameManager.gridSize))
                 {
                     return false;
                 }
@@ -218,9 +219,9 @@ namespace WallChess.Grid
         /// NEW: Check if a specific pawn has a path to their target side
         /// UPDATED: Now ignores pawn occupancy in pathfinding calculations
         /// </summary>
-        private static bool HasPathToTargetSide(GridSystem gridSystem, WallChessGameManager.PawnData pawn, int gridSize)
+        private static bool HasPathToTargetSide(GridSystem gridSystem, WallChess.Core.Session.PlayerData pawn, int gridSize)
         {
-            Vector2Int currentPos = pawn.position;
+            Vector2Int currentPos = pawn.currentPosition;
             List<Vector2Int> goalTiles = GetGoalTiles(pawn, gridSize);
             
             // Test if there's a path to ANY goal tile
@@ -240,7 +241,7 @@ namespace WallChess.Grid
         /// <summary>
         /// NEW: Get all possible goal tiles for a pawn based on their starting position
         /// </summary>
-        private static List<Vector2Int> GetGoalTiles(WallChessGameManager.PawnData pawn, int gridSize)
+        private static List<Vector2Int> GetGoalTiles(WallChess.Core.Session.PlayerData pawn, int gridSize)
         {
             List<Vector2Int> goalTiles = new List<Vector2Int>();
             Vector2Int startPos = pawn.startPosition;
