@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e29286f568442054abd6549592a16f07, type: 3}
+  m_Name: AIPersonality_Balanced
+  m_EditorClassIdentifier: WallChess::WallChess.Core.Config.AIPersonalityConfig
+  personalityName: Balanced
+  description: A balanced AI that considers both movement and wall placement equally
+  optimalPlayChance: 0.7
+  lookAheadDepth: 2
+  movePreference: 1
+  aggressiveness: 1
+  pathEfficiencyWeight: 1
+  centerControlWeight: 0.5
+  wallReserve: 2
+  wallPlacementRadius: 3
+  wallAdvantageThreshold: 2
+  moveScoreJitter: 0.1
+  wallScoreJitter: 0.15

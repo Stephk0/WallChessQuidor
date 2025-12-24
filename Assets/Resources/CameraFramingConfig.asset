@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9efc0d77de13d704eacd155cace046ff, type: 3}
+  m_Name: CameraFramingConfig
+  m_EditorClassIdentifier: WallChess::WallChess.Core.Config.CameraFramingConfig
+  nearWidth: 6.6844788
+  farWidth: 5.779147
+  trapezoidHeight: 6.1853085
+  centerOffsetZ: 0
+  paddingPercentage: 0.1
+  fieldOfView: 10
+  minCameraDistance: 10
+  maxCameraDistance: 200
+  backdropMargin: 0.05
+  backdropYOffset: -0.01

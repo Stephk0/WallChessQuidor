@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e29286f568442054abd6549592a16f07, type: 3}
+  m_Name: AIPersonality_Aggressive
+  m_EditorClassIdentifier: WallChess::WallChess.Core.Config.AIPersonalityConfig
+  personalityName: Aggressive
+  description: An aggressive AI that prioritizes blocking opponent's path
+  optimalPlayChance: 0.8
+  lookAheadDepth: 2
+  movePreference: 0.7
+  aggressiveness: 1.8
+  pathEfficiencyWeight: 0.8
+  centerControlWeight: 0.3
+  wallReserve: 1
+  wallPlacementRadius: 4
+  wallAdvantageThreshold: 1
+  moveScoreJitter: 0.05
+  wallScoreJitter: 0.1

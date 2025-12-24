@@ -50,9 +50,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8352525523505909252, guid: f0d60e2f8a90145498c844ecf19cb189, type: 3}
       propertyPath: m_Name
-      value: PB_PWN_Base
+      value: PB_PWN_Vamp
       objectReference: {fileID: 0}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: 0}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents: []

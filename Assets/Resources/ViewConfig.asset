@@ -1,0 +1,57 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a5558e47c492e8a4a9818b09b8f17a25, type: 3}
+  m_Name: ViewConfig
+  m_EditorClassIdentifier: WallChess::WallChess.View.ViewConfig
+  tilePrefab: {fileID: 7058676055335310071, guid: 9aa85dc79c86b1d47aff6471ce4495e3, type: 3}
+  tileHighlightPrefab: {fileID: 150230146685571070, guid: 2166a8fc1915b104db380a9ea7a45d15, type: 3}
+  tileConfirmHighlightPrefab: {fileID: 150230146685571070, guid: 21c5ca73fed6db24e85ef354f6298196, type: 3}
+  pawnPrefabs:
+  - {fileID: 4779446578767639209, guid: cda10330e64945e41baaf198e86952e4, type: 3}
+  - {fileID: 4779446578767639209, guid: f575019552a96af43bd9d7d6ecce35da, type: 3}
+  wallPrefab: {fileID: 8266061122573233512, guid: 7702ac3ab2f1be34cae70df0d6b845d0, type: 3}
+  wallPreviewPrefab: {fileID: 8266061122573233512, guid: 7702ac3ab2f1be34cae70df0d6b845d0, type: 3}
+  pawnMoveSpeed: 8
+  pawnJumpHeight: 0.3
+  moveCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  validMoveColor: {r: 0.2, g: 0.8, b: 0.2, a: 0.6}
+  confirmColor: {r: 0.9, g: 0.9, b: 0.2, a: 0.8}
+  invalidColor: {r: 0.8, g: 0.2, b: 0.2, a: 0.6}
+  wallPreviewValid: {r: 0.2, g: 0.6, b: 0.9, a: 0.6}
+  wallPreviewInvalid: {r: 0.9, g: 0.2, b: 0.2, a: 0.6}
+  highlightPoolSize: 20
+  wallPreviewPoolSize: 4
+  turnTransitionDuration: 0.3
+  gameOverDelay: 1.5
